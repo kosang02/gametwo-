@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>픽셀 전선</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Gothic+A1:wght@400;700&family=Silkscreen&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <h1>픽셀 전선<small>PIXEL FRONT · SANDBOX WAR</small></h1>
+    <div class="score">
+      <div class="chip red"><i></i>레드 <b id="rAlive">0</b><span>처치 <b id="rKills">0</b></span></div>
+      <div class="chip blue"><i></i>블루 <b id="bAlive">0</b><span>처치 <b id="bKills">0</b></span></div>
+    </div>
+    <div class="ctrl">
+      <button id="btnPause" title="Space">일시정지</button>
+      <button id="btnSlow" title="S">슬로모션</button>
+      <button id="btnAuto" title="A">자동 증원</button>
+      <button id="btnNew" title="R">새 전장</button>
+      <button id="btnEmpty">빈 맵</button>
+      <button id="btnSound">소리 켜짐</button>
+    </div>
+  </header>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="hint"></div>
+    <div id="banner" hidden></div>
+  </div>
+  <nav id="tools"></nav>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
