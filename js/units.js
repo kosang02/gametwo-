@@ -9,8 +9,17 @@ const UT = {
   rocket:    { name: '로켓병',   hp: 100,  speed: 3.9, range: 62,  wpn: 'rocket',  cd: 4.8 },
   grenadier: { name: '척탄병',   hp: 100,  speed: 4.2, range: 34,  wpn: 'grenade', cd: 3.4 },
   medic:     { name: '의무병',   hp: 90,   speed: 4.9, range: 26,  wpn: 'pistol',  cd: .7,  dmg: 10,  spread: .045 },
-  tank:      { name: '전차',     hp: 1300, speed: 3.3, range: 92,  wpn: 'cannon',  cd: 5.2 },
+  flame:     { name: '화염방사병', hp: 120, speed: 4.1, range: 12,  wpn: 'flame',   cd: .06 },
+  shotgun:   { name: '돌격병',   hp: 125,  speed: 5.0, range: 14,  wpn: 'shotgun', cd: 1.15, dmg: 13, spread: .13 },
+  mortar:    { name: '박격포병', hp: 80,   speed: 3.4, range: 125, wpn: 'mortar',  cd: 5.5, minR: 18 },
+  sapper:    { name: '폭파병',   hp: 95,   speed: 5.3, range: 3.4, wpn: 'charge',  cd: 7 },
+  engineer:  { name: '공병',     hp: 100,  speed: 4.4, range: 28,  wpn: 'pistol',  cd: .7,  dmg: 10,  spread: .045 },
+  dog:       { name: '군견',     hp: 70,   speed: 9.5, range: 2.4, wpn: 'bite',    cd: .75, dmg: 26, hw: .3, h: 1.1 },
+  tank:      { name: '전차',     hp: 1300, speed: 3.3, range: 92,  wpn: 'cannon',  cd: 5.2, hw: 2.3, h: 2.7, veh: true },
+  heli:      { name: '공격 헬기', hp: 650, speed: 10,  range: 70,  wpn: 'heli',    cd: 3.4, hw: 1.6, h: 2.2, veh: true, air: true },
 };
+// 헬기를 노릴 수 있는 병과
+const AA = { rifle: 1, mg: 1, sniper: 1, rocket: 1, medic: 1, engineer: 1, shotgun: 1, heli: 1 };
 const TEAM = [
   { name: '레드', team: [178, 58, 46], dark: [116, 38, 32], pants: [96, 50, 42] },
   { name: '블루', team: [52, 98, 182], dark: [32, 60, 122], pants: [40, 56, 92] },
@@ -27,7 +36,9 @@ function initPalette() {
   add('white', [232, 232, 226]); add('red', [210, 40, 36]); add('track', [44, 44, 46]); add('trackHi', [80, 80, 82]);
   add('steel', [110, 116, 124]); add('plane', [96, 108, 92]); add('planeDark', [64, 72, 60]); add('glass', [150, 200, 230]);
   add('shell', [196, 170, 92]); add('rocketBody', [80, 92, 60]); add('nuke', [60, 64, 58]); add('yellow', [236, 200, 60]);
-  add('flash', [255, 255, 255]);
+  add('flash', [255, 255, 255]); add('mine', [58, 64, 48]); add('hardhat', [240, 196, 40]);
+  add('fuel', [176, 74, 40]); add('visor', [30, 34, 36]); add('fur0', [128, 88, 52]); add('fur1', [44, 40, 38]); add('fur2', [196, 160, 110]);
+  add('rotor', [52, 54, 56]);
 }
 
 let units = [];
@@ -42,7 +53,7 @@ function spawnUnit(type, team, x, z, yaw) {
   const u = {
     id: nextUnitId++, type, team, x, y: surfaceY(x, z), z, vx: 0, vy: 0, vz: 0,
     yaw: yaw != null ? yaw : (team === 0 ? Math.PI / 2 : -Math.PI / 2),
-    hp: T.hp, maxhp: T.hp, hw: tank ? 2.3 : .38, h: tank ? 2.7 : 2.6,
+    hp: T.hp, maxhp: T.hp, hw: T.hw || .38, h: T.h || 2.6,
     dead: false, deadT: 0, stun: 0, tilt: 0, tiltV: 0, fallYaw: 0, grounded: false, ryo: 0,
     walk: Math.random() * 6, moving: false, target: null, los: false, think: Math.random() * .3,
     cd: 1 + Math.random() * 1.5, burst: 0, stuckT: 0, detourT: 0, detourYaw: 0, jumpCd: 0,
@@ -51,6 +62,7 @@ function spawnUnit(type, team, x, z, yaw) {
     healFx: 0, panicYaw: 0, panicT: 0, airT: 0,
   };
   u.turret = u.yaw;
+  if (T.air) u.y += 10;
   // 빈 공간까지 끌어올림
   for (let k = 0; k < 40 && boxHits(u.x, u.y, u.z, u.hw, u.h); k++) u.y += 1;
   units.push(u);
@@ -69,7 +81,7 @@ function boxHits(x, y, z, hw, h) {
 function damageUnit(u, dmg, team, dirx, dirz) {
   if (u.dead || dmg <= 0) return;
   u.hp -= dmg;
-  if (u.type !== 'tank' || dmg >= 30) u.flash = .08;
+  if (dmg >= (UT[u.type].veh ? 30 : 8)) u.flash = .07;
   if (team != null && team >= 0) u.lastHit = team;
   if (dirx != null) { u.lastDx = dirx; u.lastDz = dirz; }
   if (u.hp <= 0) killUnit(u);
@@ -79,7 +91,11 @@ function killUnit(u) {
   u.dead = true; u.deadT = 0; u.hp = 0;
   stats.lost[u.team]++;
   if (u.lastHit >= 0 && u.lastHit !== u.team) stats.kills[u.lastHit]++;
-  if (u.type === 'tank') {
+  if (u.type === 'heli') {
+    // 회전하며 추락, 땅에 닿으면 폭발
+    u.spin = 4 + Math.random() * 3; u.burn = 30;
+    smokePuff(u.x, u.y + 1, u.z, 1.5, 10, true);
+  } else if (u.type === 'tank') {
     queueExplosion(u.x, u.y + 1.5, u.z, 3.6, { power: 300, team: -1, fire: true }, .05);
     for (let k = 0; k < 18; k++) spawnDebris(u.x + R(3), u.y + 2, u.z + R(4), R(14), 6 + Math.random() * 12, R(14), .5 + Math.random() * .6,
       PALC['dark' + u.team].r, PALC['dark' + u.team].g, PALC['dark' + u.team].b, 8);
@@ -89,6 +105,7 @@ function killUnit(u) {
     stainGround(u.x, u.y, u.z);
     u.fallYaw = u.lastDx != null ? Math.atan2(u.lastDx, u.lastDz) : u.yaw + Math.PI;
     if (!u.stun) u.tiltV = 3.5;
+    if (u.type === 'flame') queueExplosion(u.x, u.y + 1.3, u.z, 2.4, { power: 110, team: -1, fire: true }, .15);
   }
 }
 function stainGround(x, y, z) {
@@ -119,14 +136,19 @@ function unitsNear(x, z, r, fn) {
 
 // ───────────── AI ─────────────
 const angDiff = (a, b) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
-const eyeY = u => u.y + (u.type === 'tank' ? 2.7 : 2.2);
+const eyeY = u => u.y + (u.type === 'tank' ? 2.7 : u.type === 'heli' ? .8 : u.type === 'dog' ? .8 : 2.2);
+const aimH = v => v.type === 'tank' ? 1.6 : v.type === 'heli' ? 1.1 : v.type === 'dog' ? .6 : 1.4;
 function findTarget(u) {
   let best = null, bd = 1e9;
   for (const v of units) {
     if (v.dead || v.team === u.team) continue;
+    if (UT[v.type].air && !AA[u.type]) continue;
     let d = Math.hypot(v.x - u.x, v.z - u.z);
-    if (u.type === 'rocket' && v.type === 'tank') d *= .5;
-    if (u.type === 'sniper' && v.type === 'tank') d *= 2.5;
+    const veh = UT[v.type].veh;
+    if ((u.type === 'rocket' || u.type === 'sapper') && veh) d *= .5;
+    if (u.type === 'rocket' && v.type === 'heli') d *= .6;
+    if ((u.type === 'sniper' || u.type === 'dog' || u.type === 'shotgun') && veh) d *= 3;
+    if (u.type === 'tank' && v.type === 'heli') continue;
     if (d < bd) { bd = d; best = v; }
   }
   return best;
@@ -141,20 +163,27 @@ function think(u) {
     u.wantMove = true; u.moveYaw = u.panicYaw; return;
   }
   if (u.type === 'medic' && medicThink(u)) return;
+  if (u.type === 'engineer' && engineerThink(u)) return;
+  if (u.fleeT > 0) { u.wantMove = true; u.moveYaw = u.fleeYaw; return; }
   let tg = u.target;
   if (!tg || tg.dead || Math.random() < .25) tg = findTarget(u);
   u.target = tg;
   if (!tg) { u.wantMove = false; return; }
   const dx = tg.x - u.x, dz = tg.z - u.z, d = Math.hypot(dx, dz);
-  const ty = tg.y + (tg.type === 'tank' ? 1.6 : 1.4);
+  const ty = tg.y + aimH(tg);
   u.los = d < T.range * 1.1 ? lineClear(u.x + Math.sin(u.yaw) * (u.type === 'tank' ? 3.4 : .6), eyeY(u), u.z + Math.cos(u.yaw) * (u.type === 'tank' ? 3.4 : .6), tg.x, ty, tg.z) : false;
   u.aimYaw = Math.atan2(dx, dz);
   u.aimPitch = Math.atan2(ty - eyeY(u), d);
-  const lobber = u.type === 'grenadier';
-  if (d <= T.range && (u.los || (lobber && d > 6))) {
+  const lobber = u.type === 'grenadier' || u.type === 'mortar';
+  const melee = u.type === 'dog' || u.type === 'sapper';
+  if (u.type === 'mortar' && d < T.minR) {
+    // 너무 가까우면 물러남
+    u.wantMove = true; u.moveYaw = u.aimYaw + Math.PI;
+  } else if (d <= T.range && (u.los || (lobber && d > 6) || (melee && Math.abs(tg.y - u.y) < 2.5))) {
     u.shooting = true;
     u.wantMove = u.type === 'tank' ? d > T.range * .65 && !u.los : false;
     if (u.type === 'grenadier' && d < 10) { u.wantMove = true; u.moveYaw = u.aimYaw + Math.PI; }
+    if (u.type === 'sapper') { u.fleeYaw = u.aimYaw + Math.PI + R(1); }
   } else {
     u.wantMove = true;
     u.moveYaw = u.aimYaw;
@@ -163,10 +192,43 @@ function think(u) {
   }
   if (u.detourT > 0) u.moveYaw = u.detourYaw;
 }
+function engineerThink(u) {
+  // 1) 적이 멀 때 엄폐물과 지뢰 설치 (한 번)
+  if (!u.built) {
+    let near = 1e9, ex = 0, ez = 0;
+    for (const v of units) if (!v.dead && v.team !== u.team) { const d = Math.hypot(v.x - u.x, v.z - u.z); if (d < near) { near = d; ex = v.x; ez = v.z; } }
+    if (near > 30 && near < 1e9 && u.grounded) { buildCover(u, Math.atan2(ex - u.x, ez - u.z)); u.built = true; u.wantMove = false; u.cd = 1.2; return true; }
+  }
+  // 2) 다친 차량 수리
+  let best = null, bd = 50;
+  for (const v of units) {
+    if (v.dead || v.team !== u.team || v.type !== 'tank' || v.hp >= v.maxhp * .85) continue;
+    const d = Math.hypot(v.x - u.x, v.z - u.z);
+    if (d < bd) { bd = d; best = v; }
+  }
+  if (!best) return false;
+  u.healTarget = best;
+  u.aimYaw = Math.atan2(best.x - u.x, best.z - u.z);
+  if (bd > 3.6) { u.wantMove = true; u.moveYaw = u.detourT > 0 ? u.detourYaw : u.aimYaw; }
+  else u.wantMove = false;
+  return true;
+}
+function buildCover(u, yaw) {
+  const fx = Math.sin(yaw), fz = Math.cos(yaw), rx = fz, rz = -fx;
+  const cx = u.x + fx * 3, cz = u.z + fz * 3;
+  for (let w = -3; w <= 3; w++) {
+    const X = Math.floor(cx + rx * w), Z = Math.floor(cz + rz * w), b = surfaceY(X, Z);
+    if (Math.abs(b - u.y) > 2) continue;
+    for (let y = b; y < b + 2; y++) setVox(X, y, Z, M.SANDBAG);
+  }
+  dustBurst(cx, u.y, cz, 3, 8);
+  for (const [a, dd] of [[-2.5, 8], [2.5, 9.5]]) placeMine(u.x + fx * dd + rx * a, u.z + fz * dd + rz * a, u.team);
+  sfxShot('wrench', u.x, u.y, u.z);
+}
 function medicThink(u) {
   let best = null, bd = 60;
   for (const v of units) {
-    if (v.dead || v.team !== u.team || v === u || v.type === 'tank' || v.hp >= v.maxhp * .85) continue;
+    if (v.dead || v.team !== u.team || v === u || UT[v.type].veh || v.hp >= v.maxhp * .85) continue;
     const d = Math.hypot(v.x - u.x, v.z - u.z);
     if (d < bd) { bd = d; best = v; }
   }
@@ -186,11 +248,14 @@ function updateUnitAI(u, dt) {
   if (u.jumpCd > 0) u.jumpCd -= dt;
   if (u.cd > 0) u.cd -= dt;
   if (u.mgCd > 0) u.mgCd -= dt;
+  if (u.fleeT > 0) u.fleeT -= dt;
+  if (u.bite > 0) u.bite -= dt;
   const tank = u.type === 'tank';
+  if (u.type === 'heli') { heliAI(u, dt); return; }
   if (u.stun > 0) return;
   // 회전
   const want = u.shooting && !u.wantMove ? u.aimYaw : (u.wantMove ? u.moveYaw : u.yaw);
-  const rate = tank ? 1.3 : 7;
+  const rate = tank ? 1.3 : u.type === 'dog' ? 10 : 7;
   const da = angDiff(u.yaw, want);
   u.yaw += Math.max(-rate * dt, Math.min(rate * dt, da));
   // 전차 포탑
@@ -226,9 +291,14 @@ function updateUnitAI(u, dt) {
       const fx = Math.floor(u.x + Math.sin(u.moveYaw) * .9), fz = Math.floor(u.z + Math.cos(u.moveYaw) * .9), fy = Math.floor(u.y);
       if (!solidAt(fx, fy + 2, fz) && !solidAt(fx, fy + 3, fz)) { u.vy = 10.5; u.jumpCd = .6; }
     }
+    // 군견은 가까운 적에게 달려들어 도약
+    if (u.type === 'dog' && u.target && !u.target.dead && u.grounded && u.jumpCd <= 0) {
+      const d = Math.hypot(u.target.x - u.x, u.target.z - u.z);
+      if (d > 2.5 && d < 6) { u.vy = 7; u.vx = Math.sin(u.aimYaw) * 11; u.vz = Math.cos(u.aimYaw) * 11; u.jumpCd = 1.2; }
+    }
     if (u.stuckT > 1.5) {
       u.stuckT = 0;
-      const breach = tank || u.type === 'rocket' || u.type === 'grenadier';
+      const breach = tank || u.type === 'rocket' || u.type === 'grenadier' || u.type === 'sapper';
       if (breach && u.cd <= 0) {
         u.aimYaw = u.moveYaw; u.turret = u.moveYaw;
         breachObstacle(u);
@@ -245,8 +315,8 @@ function updateUnitAI(u, dt) {
   if (u.shooting && u.target && !u.target.dead) {
     const facing = tank ? Math.abs(angDiff(u.turret, u.aimYaw)) < .08 : Math.abs(angDiff(u.yaw, u.aimYaw)) < .3;
     const tg = u.target;
-    if (facing && u.cd <= 0 && (u.grounded || u.inWater)) {
-      fireWeapon(u, tg.x + tg.vx * .15, tg.y + (tg.type === 'tank' ? 1.5 : 1.3), tg.z + tg.vz * .15, false);
+    if (facing && u.cd <= 0 && (u.grounded || u.inWater || u.type === 'dog')) {
+      fireWeapon(u, tg.x + tg.vx * .15, tg.y + aimH(tg), tg.z + tg.vz * .15, false);
     }
   }
   // 전차 동축 기관총: 가까운 보병에게
@@ -259,25 +329,84 @@ function updateUnitAI(u, dt) {
       u.mgCd = u.mgBurst % 10 === 0 ? 1.6 : .1;
     }
   }
-  // 의무병 치료
-  if (u.type === 'medic' && u.healTarget && !u.healTarget.dead) {
-    const h = u.healTarget, d = Math.hypot(h.x - u.x, h.z - u.z);
-    if (d < 2.6 && h.hp < h.maxhp) {
-      h.hp = Math.min(h.maxhp, h.hp + 32 * dt);
+  // 의무병 치료 / 공병 수리
+  if ((u.type === 'medic' || u.type === 'engineer') && u.healTarget && !u.healTarget.dead) {
+    const h = u.healTarget, d = Math.hypot(h.x - u.x, h.z - u.z), eng = u.type === 'engineer';
+    if (d < (eng ? 4 : 2.6) && h.hp < h.maxhp) {
+      h.hp = Math.min(h.maxhp, h.hp + (eng ? 45 : 32) * dt);
+      if (eng) { u.shooting = false; if (Math.random() < dt * 12) sparks(h.x + R(2), h.y + 1.5, h.z + R(2), 2, 4); }
       if (h.burn > 0) h.burn = 0;
       u.healFx -= dt;
       if (u.healFx <= 0) {
         u.healFx = .5;
-        for (let k = 0; k < 5; k++) fire.spawn(h.x + R(1), h.y + 1 + Math.random() * 1.5, h.z + R(1), 0, 1.5, 0, .7, .45, .15, C.heal0, C.heal1, 1, -1);
-        sfxShot('heal', h.x, h.y, h.z);
+        if (!eng) for (let k = 0; k < 5; k++) fire.spawn(h.x + R(1), h.y + 1 + Math.random() * 1.5, h.z + R(1), 0, 1.5, 0, .7, .45, .15, C.heal0, C.heal1, 1, -1);
+        sfxShot(eng ? 'wrench' : 'heal', h.x, h.y, h.z);
       }
     }
     if (u.healTarget.hp >= u.healTarget.maxhp * .99) u.healTarget = null;
   }
 }
 
+// ───────────── 헬기 ─────────────
+function heliAI(u, dt) {
+  const T = UT.heli;
+  const tg = u.target;
+  let dvx = 0, dvz = 0;
+  if (phase === 'battle' && tg && !tg.dead) {
+    const dx = tg.x - u.x, dz = tg.z - u.z, d = Math.hypot(dx, dz) || 1;
+    if (d > T.range * .75) { dvx = dx / d * T.speed; dvz = dz / d * T.speed; }
+    else {
+      // 사거리 안: 옆으로 선회하며 사격
+      const side = (u.id & 1) ? 1 : -1, back = d < 25 ? -.6 : 0;
+      dvx = (dz / d * side + dx / d * back) * 4; dvz = (-dx / d * side + dz / d * back) * 4;
+    }
+    const want = Math.atan2(dx, dz);
+    u.yaw += Math.max(-1.6 * dt, Math.min(1.6 * dt, angDiff(u.yaw, want)));
+    if (u.shooting && u.los && u.cd <= 0 && Math.abs(angDiff(u.yaw, want)) < .2) fireWeapon(u, tg.x + tg.vx * .4, tg.y + aimH(tg), tg.z + tg.vz * .4, false);
+    if (u.los && u.mgCd <= 0 && d < 60 && Math.abs(angDiff(u.yaw, want)) < .4) {
+      fireBullet(u, u.x + Math.sin(u.yaw) * 2.2, u.y + .5, u.z + Math.cos(u.yaw) * 2.2, tg.x, tg.y + aimH(tg), tg.z, 9, .05, 160, false, 'mg');
+      u.mgBurst++; u.mgCd = u.mgBurst % 12 === 0 ? 1.8 : .09;
+    }
+  }
+  const k = Math.min(1, dt * 1.6);
+  u.vx += (dvx - u.vx) * k; u.vz += (dvz - u.vz) * k;
+  u.moving = Math.hypot(u.vx, u.vz) > 1;
+}
+function physHeli(u, dt) {
+  u.walk += dt * 30;
+  if (u.dead) {
+    u.vy -= GRAV * .8 * dt; u.yaw += (u.spin || 4) * dt;
+    if (Math.random() < dt * 25) smoke.spawn(u.x + R(1), u.y + 1.2, u.z + R(1), R(1), 2, R(1), 3, 1.5, 5, C.dark0, C.dark1, .6, -.6);
+  } else {
+    // 지형 위 일정 고도 유지
+    let gh = 0;
+    for (let ox = -6; ox <= 6; ox += 3) for (let oz = -6; oz <= 6; oz += 3) gh = Math.max(gh, surfaceY(u.x + ox, u.z + oz));
+    const ty = Math.max(gh, WATER_Y) + 14 + Math.sin(u.walk * .03 + u.id) * .6;
+    u.vy += ((ty - u.y) * 1.8 - u.vy) * Math.min(1, dt * 2.5);
+  }
+  const nx = u.x + u.vx * dt, nz = u.z + u.vz * dt, ny = u.y + u.vy * dt;
+  if (!boxHits(nx, u.y, u.z, u.hw, u.h)) u.x = Math.max(4, Math.min(SX - 4, nx)); else u.vx *= -.3;
+  if (!boxHits(u.x, u.y, nz, u.hw, u.h)) u.z = Math.max(4, Math.min(SZ - 4, nz)); else u.vz *= -.3;
+  if (!boxHits(u.x, ny, u.z, u.hw, u.h)) u.y = ny;
+  else {
+    if (u.dead && !u.crashed) {
+      u.crashed = true;
+      explode(u.x, u.y + 1, u.z, 4, { power: 320, team: -1, fire: true });
+      for (let k = 0; k < 14; k++) spawnDebris(u.x + R(2), u.y + 1.5, u.z + R(3), R(12), 5 + Math.random() * 9, R(12), .4 + Math.random() * .5, PALC['dark' + u.team].r, PALC['dark' + u.team].g, PALC['dark' + u.team].b, 8);
+    }
+    if (u.vy < 0) u.y = Math.floor(ny) + 1;
+    u.vy = 0; u.vx *= .7; u.vz *= .7; u.spin = (u.spin || 0) * .9;
+  }
+  u.grounded = false;
+  // 기울기: 진행 방향으로 숙임
+  const c = Math.cos(u.yaw), s = Math.sin(u.yaw);
+  u.hpitch = Math.max(-.35, Math.min(.35, (u.vx * s + u.vz * c) * .03));
+  u.hroll = Math.max(-.35, Math.min(.35, -(u.vx * c - u.vz * s) * .04));
+}
+
 // ───────────── 물리 ─────────────
 function physUnit(u, dt) {
+  if (u.type === 'heli') { physHeli(u, dt); return; }
   const tank = u.type === 'tank';
   u.vy -= GRAV * dt;
   u.inWater = u.y + 1.1 < WATER_Y;
@@ -350,10 +479,10 @@ function moveH(u, axis, d) {
 }
 function separate(dt) {
   for (const u of units) {
-    if (u.dead) continue;
+    if (u.dead || u.type === 'heli') continue;
     const tank = u.type === 'tank';
     unitsNear(u.x, u.z, 3, v => {
-      if (v === u || v.dead || v.id < u.id && !tank && v.type !== 'tank') return;
+      if (v === u || v.dead || v.type === 'heli' || v.id < u.id && !tank && v.type !== 'tank') return;
       const dx = v.x - u.x, dz = v.z - u.z, d = Math.hypot(dx, dz) + 1e-4;
       if (Math.abs(v.y - u.y) > 2.5) return;
       const min = u.hw + v.hw + .25;
@@ -380,7 +509,9 @@ function updateUnits(dt) {
     if (u.flash > 0) u.flash -= dt;
     if (u.dead) {
       u.deadT += dt;
-      if (u.type !== 'tank') {
+      if (u.type === 'heli') {
+        // 추락 중
+      } else if (u.type !== 'tank') {
         u.tiltV = u.tiltV || 3;
         u.tilt = Math.min(Math.PI / 2, u.tilt + u.tiltV * dt);
         u.tiltV += dt * 6;
@@ -403,6 +534,7 @@ function updateUnits(dt) {
       }
       if (u.stun <= 0) { u.stun = 0; u.tilt = 0; u.airT = 0; }
     }
+    if (u.burn > 0 && u.type === 'heli') u.burn = 0;
     if (u.burn > 0) {
       u.burn -= dt;
       damageUnit(u, (u.type === 'tank' ? 4 : 14) * dt, u.burnTeam != null ? u.burnTeam : -1);
@@ -412,7 +544,7 @@ function updateUnits(dt) {
         if (MAT[getV(X, Y, Z)] && MAT[getV(X, Y, Z)].flam > 0) igniteVoxel(X, Y, Z);
       }
     }
-    if (u.y < WATER_Y - 1.2 && u.type !== 'tank' && u.y + 2.2 < WATER_Y) damageUnit(u, 6 * dt, -1);
+    if (!UT[u.type].veh && u.y + u.h * .85 < WATER_Y) damageUnit(u, 6 * dt, -1);
     updateUnitAI(u, dt);
     physUnit(u, dt);
     if (u.moving && u.grounded) u.walk += Math.hypot(u.vx, u.vz) * dt * 2.2;
@@ -430,8 +562,8 @@ function updateUnits(dt) {
 
 // 폭발 넉백 → 래그돌
 function knockUnit(u, ix, iy, iz) {
-  const tank = u.type === 'tank';
-  const m = tank ? .12 : 1;
+  const tank = !!UT[u.type].veh;
+  const m = u.type === 'tank' ? .12 : u.type === 'heli' ? .2 : 1;
   u.vx += ix * m; u.vy += iy * m; u.vz += iz * m;
   const imp = Math.hypot(ix, iy, iz) * m;
   if (!tank && imp > 5 && !u.dead) {
@@ -464,7 +596,7 @@ function part(base, px, py, pz, a, ox, oy, oz, sx, sy, sz, color, flash) {
     0, 0, 0, 1);
   _M.multiplyMatrices(base, _P);
   boxMesh.setMatrixAt(boxN, _M);
-  if (flash > 0) boxMesh.setColorAt(boxN, _tmpC.copy(color).lerp(_white, .7));
+  if (flash > 0) boxMesh.setColorAt(boxN, _tmpC.copy(color).lerp(_white, .4));
   else boxMesh.setColorAt(boxN, color);
   boxN++;
 }
@@ -490,7 +622,7 @@ function drawSoldier(u) {
   const team = u.team, f = u.flash;
   const cT = PALC['team' + team], cD = PALC['dark' + team], cP = PALC['pants' + team], skin = PALC['skin' + u.skin];
   const sw = u.moving && !u.dead && u.stun <= 0 ? Math.sin(u.walk) * .75 : 0;
-  const armed = u.type !== 'medic' || u.shooting;
+  const armed = (u.type !== 'medic' && !(u.type === 'mortar' && u.shooting)) || (u.type === 'medic' && u.shooting);
   const aim = armed && !u.dead ? -1.45 - (u.shooting ? u.aimPitch : 0) : 0;
   const armSw = u.dead ? .3 : 0;
   // 다리 + 군화
@@ -505,10 +637,23 @@ function drawSoldier(u) {
     part(_B, 0, 1.0, 0, 0, 0, .5, -.28, .46, .55, .22, PALC.white, f);
     part(_B, 0, 1.0, 0, 0, 0, .55, -.4, .26, .08, .02, PALC.red, f);
     part(_B, 0, 1.0, 0, 0, 0, .55, -.4, .08, .26, .02, PALC.red, f);
+  } else if (u.type === 'flame') {
+    part(_B, 0, 1.0, 0, 0, -.13, .5, -.33, .2, .7, .24, PALC.fuel, f);
+    part(_B, 0, 1.0, 0, 0, .13, .5, -.33, .2, .7, .24, PALC.fuel, f);
+  } else if (u.type === 'sapper') {
+    part(_B, 0, 1.0, 0, 0, 0, .5, -.3, .5, .5, .26, PALC.pack, f);
+    part(_B, 0, 1.0, 0, 0, -.12, .6, -.45, .16, .3, .08, PALC.red, f);
+    part(_B, 0, 1.0, 0, 0, .12, .6, -.45, .16, .3, .08, PALC.red, f);
+  } else if (u.type === 'mortar') {
+    part(_B, 0, 1.0, 0, 0, 0, .55, -.3, .4, .5, .22, PALC.pack, f);
+    if (!u.shooting) part(_B, 0, 1.0, 0, -.3, .1, .9, -.38, .16, 1.0, .16, PALC.tube, f);
   } else part(_B, 0, 1.0, 0, 0, 0, .5, -.28, .46, .55, .22, PALC.pack, f);
   // 머리, 철모
   part(_B, 0, 1.9, 0, 0, 0, .22, 0, .38, .4, .38, skin, f);
-  part(_B, 0, 1.9, 0, 0, 0, .46, 0, .5, .16, .52, u.type === 'medic' ? PALC.white : cD, f);
+  const hat = u.type === 'medic' ? PALC.white : u.type === 'engineer' ? PALC.hardhat : cD;
+  if (u.type === 'shotgun') part(_B, 0, 1.9, 0, 0, .05, .44, -.02, .44, .12, .46, cD, f);
+  else part(_B, 0, 1.9, 0, 0, 0, .46, 0, .5, .16, .52, hat, f);
+  if (u.type === 'flame') part(_B, 0, 1.9, 0, 0, 0, .22, .2, .32, .18, .04, PALC.visor, f);
   // 팔
   const al = u.type === 'medic' && !armed ? sw * .8 : aim;
   const ar = u.type === 'medic' && !armed ? -sw * .8 : aim;
@@ -530,6 +675,22 @@ function drawSoldier(u) {
       part(_B, .1, 1.55, 0, wp, 0, 0, .35, .12, .16, .7, PALC.gun, 0);
       part(_B, 0, 1.0, 0, 0, 0, .04, .2, .5, .14, .06, PALC.tube, 0); break;
     case 'medic': if (armed) part(_B, .1, 1.55, 0, wp, 0, 0, .3, .08, .12, .3, PALC.gun, 0); break;
+    case 'engineer':
+      part(_B, .1, 1.55, 0, wp, 0, 0, .3, .08, .12, .3, PALC.gun, 0);
+      part(_B, -.1, 1.55, 0, 0, 0, 0, .35, .07, .07, .45, PALC.steel, 0); break;
+    case 'flame':
+      part(_B, .1, 1.5, 0, wp, 0, 0, .45, .12, .14, .9, PALC.gun, 0);
+      if (u.shooting) part(_B, .1, 1.5, 0, wp, 0, 0, .95, .1, .1, .1, PALC.yellow, 0); break;
+    case 'shotgun':
+      part(_B, .1, 1.55, 0, wp, 0, 0, .4, .14, .16, .8, PALC.gun, 0);
+      part(_B, .1, 1.55, 0, wp, 0, -.1, .45, .1, .06, .4, PALC.fur0, 0); break;
+    case 'sapper': part(_B, .1, 1.55, 0, wp, 0, 0, .3, .08, .12, .5, PALC.gun, 0); break;
+    case 'mortar':
+      if (u.shooting) {
+        part(_B, 0, .05, .9, -1.15, 0, .5, 0, .2, 1.0, .2, PALC.tube, 0);
+        part(_B, 0, 0, 0, 0, 0, .05, .9, .6, .08, .6, PALC.gun, 0);
+      } else part(_B, .1, 1.55, 0, wp, 0, 0, .3, .08, .12, .3, PALC.gun, 0);
+      break;
   }
 }
 function drawTank(u) {
@@ -557,10 +718,51 @@ function drawTank(u) {
   part(_BT, 0, .5, 1.45, -u.barrel, 0, 0, 1.65 - u.recoil * .8, .26, .26, 3.3, PALC.gun, f);
   part(_BT, 0, .5, 1.45, -u.barrel, 0, 0, 3.2 - u.recoil * .8, .36, .36, .4, PALC.gun, f);
 }
-function drawUnits() {
-  for (const u of units) {
-    if (u.type === 'tank') drawTank(u); else drawSoldier(u);
+function drawUnit(u) {
+  if (u.type === 'tank') drawTank(u);
+  else if (u.type === 'heli') drawHeli(u);
+  else if (u.type === 'dog') drawDog(u);
+  else drawSoldier(u);
+}
+function drawUnits() { for (const u of units) drawUnit(u); }
+function drawHeli(u) {
+  _e.set(u.hpitch || 0, u.yaw, u.hroll || 0, 'YXZ'); _q.setFromEuler(_e);
+  _pos.set(u.x, u.y + u.ryo, u.z); _B.compose(_pos, _q, _scl);
+  const f = u.flash, cT = u.dead ? PALC.track : PALC['team' + u.team], cD = u.dead ? PALC.boot : PALC['dark' + u.team];
+  part(_B, 0, 0, 0, 0, 0, 1.2, 0, 1.7, 1.5, 3.6, cT, f);
+  part(_B, 0, 0, 0, 0, 0, 1.35, 1.95, 1.3, 1.0, .8, PALC.glass, f);
+  part(_B, 0, 0, 0, 0, 0, .55, 2.1, .26, .26, .8, PALC.gun, f);
+  part(_B, 0, 0, 0, 0, 0, 1.45, -2.9, .5, .5, 3.2, cD, f);
+  part(_B, 0, 0, 0, 0, 0, 2.1, -4.3, .12, 1.2, .8, cD, f);
+  part(_B, .3, 2.0, -4.35, u.walk * 1.3, 0, 0, 0, .05, 1.7, .22, PALC.rotor, 0);
+  part(_B, 0, 0, 0, 0, 0, 1.0, .3, 2.7, .12, .7, cD, f);
+  for (const sx of [-1, 1]) {
+    part(_B, 0, 0, 0, 0, sx * 1.25, .85, .4, .38, .38, 1.3, PALC.gun, f);
+    part(_B, 0, 0, 0, 0, sx * .75, .12, 0, .12, .12, 3.2, PALC.boot, f);
+    part(_B, 0, 0, 0, 0, sx * .75, .35, .9, .1, .45, .1, PALC.boot, f);
+    part(_B, 0, 0, 0, 0, sx * .75, .35, -.9, .1, .45, .1, PALC.boot, f);
   }
+  part(_B, 0, 0, 0, 0, 0, 2.15, 0, .22, .45, .22, PALC.rotor, f);
+  if (u.crashed) return;
+  _T.makeRotationY(u.walk); _T.setPosition(0, 2.4, 0); _BT.multiplyMatrices(_B, _T);
+  part(_BT, 0, 0, 0, 0, 0, 0, 0, 9.5, .06, .32, PALC.rotor, 0);
+  part(_BT, 0, 0, 0, 0, 0, 0, 0, .32, .06, 9.5, PALC.rotor, 0);
+}
+function drawDog(u) {
+  unitBase(u, _B);
+  const f = u.flash, fur = PALC['fur' + u.skin], dk = PALC.boot;
+  const sw = u.moving && !u.dead && u.stun <= 0 ? Math.sin(u.walk * 1.6) * .8 : 0;
+  const lunge = u.bite > 0 ? .25 : 0;
+  for (const [lx, lz, ph] of [[-.13, .36, 1], [.13, .36, -1], [-.13, -.36, -1], [.13, -.36, 1]])
+    part(_B, lx, .58, lz, sw * ph, 0, -.29, 0, .12, .58, .14, fur, f);
+  part(_B, 0, 0, 0, 0, 0, .7, 0, .36, .34, .95, fur, f);
+  part(_B, 0, 0, 0, 0, 0, .74, .42, .38, .4, .3, fur, f);
+  part(_B, 0, .98, .6 + lunge, -.15, 0, 0, .1, .3, .3, .36, fur, f);
+  part(_B, 0, .98, .6 + lunge, -.15, 0, -.06, .36, .18, .15, .2, dk, f);
+  part(_B, 0, .98, .6 + lunge, -.15, -.1, .2, 0, .07, .14, .07, dk, f);
+  part(_B, 0, .98, .6 + lunge, -.15, .1, .2, 0, .07, .14, .07, dk, f);
+  part(_B, 0, 0, 0, 0, 0, .9, .5, .34, .08, .1, PALC['team' + u.team], f);
+  part(_B, 0, .85, -.48, -.7 + Math.sin(u.walk * 3) * .3, 0, 0, -.2, .07, .07, .42, fur, f);
 }
 
 // 무너지는 덩어리에 깔리는 유닛

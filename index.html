@@ -16,7 +16,7 @@
   <div id="flash"></div>
 
   <header class="top">
-    <div class="brand"><span class="mark">픽셀 전선</span><span class="sub">VOXEL WAR SANDBOX</span></div>
+    <div class="brand"><span class="mark">픽셀 전선</span><span class="sub" id="mapName">강변 마을</span></div>
     <div class="score" aria-live="polite">
       <div class="side red"><span class="nm">레드</span><b id="rN">0</b></div>
       <div class="mid">
@@ -54,7 +54,7 @@
         <button id="btnArmy">기본 군대</button>
         <button id="btnClear">병력 비우기</button>
         <button id="btnAuto">자동 증원</button>
-        <button id="btnMap">새 지도</button>
+        <button id="btnMap">지도 선택</button>
       </div>
     </div>
     <button id="drawerTab" class="dtab" aria-controls="drawer" aria-expanded="true" title="병기고 열기/닫기 (B)">
@@ -103,8 +103,17 @@
       <div class="bbtn">
         <button id="bAgain" class="go">같은 배치로 다시</button>
         <button id="bWatch">전장 둘러보기</button>
-        <button id="bNew">새 지도</button>
+        <button id="bNew">다른 지도</button>
       </div>
+    </div>
+  </div>
+
+  <div id="mapPick" class="banner" hidden>
+    <div class="bcard mapcard">
+      <div class="beyebrow">전장 선택</div>
+      <h3 class="mtitle">어디서 싸울까요</h3>
+      <div id="mapList" class="maplist"></div>
+      <div class="bbtn"><button id="mapRandom" class="go">무작위 지도</button><button id="mapClose">닫기</button></div>
     </div>
   </div>
 

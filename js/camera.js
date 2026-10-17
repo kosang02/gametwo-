@@ -70,7 +70,7 @@ function clampCam() {
 // ───────────── 관전 ─────────────
 function startFollow(u) {
   followUnit = u;
-  cam.dist = u.type === 'tank' ? 24 : 14;
+  cam.dist = u.type === 'tank' ? 24 : u.type === 'heli' ? 26 : u.type === 'dog' ? 9 : 14;
   cam.pitch = .3;
   cam.yaw = u.yaw + Math.PI;
   cam.lastRot = -1e9;
@@ -93,7 +93,7 @@ function updateCamera(dt) {
   const u = followUnit;
   if (u && (u.removed || (u.dead && u.deadT > 3))) stopFollow(true);
   if (followUnit) {
-    cam.tx = u.x; cam.tz = u.z; cam.ty = u.y + u.ryo + (u.type === 'tank' ? 2.8 : 2);
+    cam.tx = u.x; cam.tz = u.z; cam.ty = u.y + u.ryo + u.h * .8;
     // 사용자가 한동안 돌리지 않았고 유닛이 움직이면 뒤쪽으로 천천히 돌아감
     const sp = Math.hypot(u.vx, u.vz);
     if (!u.dead && sp > 1.2 && performance.now() - cam.lastRot > 2500) {
@@ -134,9 +134,11 @@ function applyCamera(dt) {
   if (dt === 0) cam.lift = Math.max(cam.lift, need);
   else cam.lift += (need - cam.lift) * Math.min(1, dt * (need > cam.lift ? 18 : 3));
   py += cam.lift;
-  const sh = shakeAmt;
-  camera.position.set(px + R(sh) * .5, py + R(sh) * .5, pz + R(sh) * .5);
-  camera.lookAt(c.tx + R(sh) * .25, c.ty, c.tz + R(sh) * .25);
+  // 흔들림: 매 프레임 무작위로 튀지 않도록 부드러운 진동으로
+  const sh = shakeAmt * .32, t = performance.now() * .001;
+  const ox = (Math.sin(t * 29) + Math.sin(t * 13.7)) * sh, oy = (Math.sin(t * 31.3) + Math.sin(t * 17.1)) * sh * .7, oz = (Math.sin(t * 23.9) + Math.sin(t * 11.3)) * sh;
+  camera.position.set(px + ox, py + oy, pz + oz);
+  camera.lookAt(c.tx + ox * .4, c.ty + oy * .4, c.tz + oz * .4);
   camera.updateMatrixWorld();
 }
 
@@ -168,7 +170,7 @@ function pickUnit(cx, cy) {
   let best = null, bt = 1e9;
   for (const u of units) {
     if (u.dead) continue;
-    const hw = u.type === 'tank' ? 2.6 : .9, hh = u.type === 'tank' ? 3.2 : 3;
+    const hw = u.hw + .5, hh = u.h + .4;
     const t = segAABB(o.x, o.y, o.z, d.x * 1500, d.y * 1500, d.z * 1500, u.x - hw, u.y - .3, u.z - hw, u.x + hw, u.y + hh, u.z + hw);
     if (t >= 0 && t < bt) { bt = t; best = u; }
   }

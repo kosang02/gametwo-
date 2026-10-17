@@ -112,7 +112,9 @@ function drawDebris() {
 // ───────────── 포인트 파티클 ─────────────
 const P_VS = `
 attribute float psize; attribute vec4 pcolor; varying vec4 vC; uniform float uScale;
-void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); gl_PointSize = min(512.0, psize * uScale / max(0.1,-mv.z)); gl_Position = projectionMatrix * mv; vC = pcolor; }`;
+void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); float z = max(0.1,-mv.z);
+  float px = psize * uScale / z; gl_PointSize = min(300.0, px); gl_Position = projectionMatrix * mv; vC = pcolor;
+  vC.a *= smoothstep(1.5, 7.0, z) * clamp(220.0 / px, 0.3, 1.0); }`;
 const P_FS = `
 varying vec4 vC; uniform float uSoft;
 void main(){ vec2 c = gl_PointCoord - 0.5; float d = length(c); if(d > 0.5) discard;
@@ -151,20 +153,12 @@ class PSys {
     for (let k = 0; k < 4; k++) { this.c0[q + k] = c0[k]; this.c1[q + k] = c1[k]; }
     this.drag[i] = drag; this.grav[i] = grav;
   }
-  update(dt) {
+  update(dt, sort) {
     const P = this.p, V = this.v;
+    let w = 0;
     for (let i = 0; i < this.n; i++) {
-      this.life[i] -= dt;
-      if (this.life[i] <= 0) {
-        const j = --this.n;
-        if (i !== j) {
-          for (let k = 0; k < 3; k++) { P[i * 3 + k] = P[j * 3 + k]; V[i * 3 + k] = V[j * 3 + k]; }
-          for (let k = 0; k < 4; k++) { this.c0[i * 4 + k] = this.c0[j * 4 + k]; this.c1[i * 4 + k] = this.c1[j * 4 + k]; }
-          this.life[i] = this.life[j]; this.ml[i] = this.ml[j]; this.s0[i] = this.s0[j]; this.s1[i] = this.s1[j];
-          this.drag[i] = this.drag[j]; this.grav[i] = this.grav[j];
-        }
-        i--; continue;
-      }
+      const l = this.life[i] - dt;
+      if (l <= 0) continue;
       const o = i * 3, k = Math.max(0, 1 - this.drag[i] * dt);
       V[o] *= k; V[o + 1] = V[o + 1] * k - this.grav[i] * dt; V[o + 2] *= k;
       if (bhole) {
@@ -172,22 +166,39 @@ class PSys {
         if (d < bhole.r * 3) { const f = 40 / d * dt; V[o] += ax / d * f; V[o + 1] += ay / d * f; V[o + 2] += az / d * f; }
       }
       P[o] += V[o] * dt; P[o + 1] += V[o + 1] * dt; P[o + 2] += V[o + 2] * dt;
+      // 죽은 입자를 지워도 나머지 순서는 그대로 유지 (순서가 바뀌면 겹친 연기가 깜빡임)
+      if (w !== i) {
+        const a = w * 3;
+        for (let q = 0; q < 3; q++) { P[a + q] = P[o + q]; V[a + q] = V[o + q]; }
+        for (let q = 0; q < 4; q++) { this.c0[w * 4 + q] = this.c0[i * 4 + q]; this.c1[w * 4 + q] = this.c1[i * 4 + q]; }
+        this.ml[w] = this.ml[i]; this.s0[w] = this.s0[i]; this.s1[w] = this.s1[i]; this.drag[w] = this.drag[i]; this.grav[w] = this.grav[i];
+      }
+      this.life[w] = l;
+      w++;
+    }
+    this.n = w;
+    const n = this.n, ord = this.ord || (this.ord = new Uint32Array(this.max)), dep = this.dep || (this.dep = new Float32Array(this.max));
+    for (let i = 0; i < n; i++) ord[i] = i;
+    if (sort && n > 1 && camera) {
+      const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+      for (let i = 0; i < n; i++) { const o = i * 3; dep[i] = (P[o] - cx) ** 2 + (P[o + 1] - cy) ** 2 + (P[o + 2] - cz) ** 2; }
+      ord.subarray(0, n).sort((a, b) => dep[b] - dep[a]);
     }
     const ap = this.aPos.array, ac = this.aCol.array, as = this.aSize.array;
-    for (let i = 0; i < this.n; i++) {
-      const t = 1 - this.life[i] / this.ml[i], o = i * 3, q = i * 4;
-      ap[o] = P[o]; ap[o + 1] = P[o + 1]; ap[o + 2] = P[o + 2];
-      as[i] = this.s0[i] + (this.s1[i] - this.s0[i]) * t;
-      for (let k = 0; k < 4; k++) ac[q + k] = this.c0[q + k] + (this.c1[q + k] - this.c0[q + k]) * t;
+    for (let j = 0; j < n; j++) {
+      const i = ord[j], t = 1 - this.life[i] / this.ml[i], o = i * 3, q = i * 4, oj = j * 3, qj = j * 4;
+      ap[oj] = P[o]; ap[oj + 1] = P[o + 1]; ap[oj + 2] = P[o + 2];
+      as[j] = this.s0[i] + (this.s1[i] - this.s0[i]) * t;
+      for (let k = 0; k < 4; k++) ac[qj + k] = this.c0[q + k] + (this.c1[q + k] - this.c0[q + k]) * t;
     }
     this.aPos.needsUpdate = this.aCol.needsUpdate = this.aSize.needsUpdate = true;
-    this.points.geometry.setDrawRange(0, this.n);
+    this.points.geometry.setDrawRange(0, n);
   }
 }
 let fire, smoke;
 const C = {
   fire0: [1.0, .82, .42, 1], fire1: [.7, .12, .02, 0],
-  hot0: [1, .95, .75, 1], hot1: [1, .35, .05, 0],
+  hot0: [1, .95, .75, 1], hot1: [1, .35, .05, 0], flash0: [1, .9, .65, .75],
   spark0: [1, .9, .55, 1], spark1: [1, .4, .1, 0],
   smoke0: [.22, .21, .2, .62], smoke1: [.42, .41, .4, 0],
   dark0: [.08, .07, .07, .75], dark1: [.25, .24, .23, 0],
@@ -230,7 +241,7 @@ function bloodBurst(x, y, z, dx, dz, n) {
     spawnDebris(x, y, z, dx * 4 + R(4), Math.random() * 4, dz * 4 + R(4), .12 + Math.random() * .12, .3, .01, .015, 3 + Math.random() * 3);
 }
 function muzzleFlash(x, y, z, big) {
-  fire.spawn(x, y, z, 0, 0, 0, .06, big ? 2.2 : 1.1, big ? .6 : .3, C.muzzle0, C.muzzle1, 0, 0);
+  fire.spawn(x, y, z, 0, 0, 0, .06, big ? 1.6 : .8, big ? .5 : .25, C.muzzle0, C.muzzle1, 0, 0);
   if (big) smokePuff(x, y, z, .6, 3, false);
 }
 
@@ -267,8 +278,9 @@ function initFlashLights() {
   }
 }
 function flashLight(x, y, z, I, dist, dur) {
-  let best = lights[0];
-  for (const L of lights) if (L.t <= 0 || L.I * L.t / L.d < best.I * best.t / best.d) best = L;
+  let best = null, bv = 1e9;
+  for (const L of lights) { const v = L.t > 0 ? L.I * L.t / L.d : 0; if (v < bv) { bv = v; best = L; } }
+  if (bv > I * .6) return; // 더 밝은 섬광이 이미 켜져 있으면 건너뜀 (조명이 튀는 현상 방지)
   best.l.position.set(x, y, z); best.l.distance = dist; best.I = I; best.t = dur; best.d = dur;
 }
 function shockRing(x, y, z, R, dur) {
@@ -278,7 +290,7 @@ function shockRing(x, y, z, R, dur) {
 }
 function updateFlash(dt) {
   for (const L of lights) {
-    if (L.t > 0) { L.t -= dt; L.l.intensity = Math.max(0, L.I * Math.pow(L.t / L.d, 1.6)); }
+    if (L.t > 0) { L.t -= dt; const k = L.t / L.d, rise = Math.min(1, (1 - k) * L.d / .04); L.l.intensity = Math.max(0, L.I * rise * k * k); }
     else L.l.intensity = 0;
   }
   for (const r of rings) {
@@ -296,7 +308,7 @@ function updateFlash(dt) {
 let shakeAmt = 0;
 function addShake(a, x, y, z) {
   const d = camera ? Math.hypot(camera.position.x - x, camera.position.y - y, camera.position.z - z) : 50;
-  shakeAmt = Math.min(2.5, shakeAmt + a * Math.max(0, 1 - d / 220) * 1.5);
+  shakeAmt = Math.min(1.6, shakeAmt + a * Math.max(0, 1 - d / 200));
 }
 
 // ───────────── 사운드 (WebAudio 합성, 거리 감쇠 + 스테레오) ─────────────
@@ -368,6 +380,11 @@ function sfxShot(kind, x, y, z) {
   else if (kind === 'throw') noiseHit(t, .25, 'highpass', 2000, 4000, .12 * g, pan, 0, .06);
   else if (kind === 'clink') tone(t, 'triangle', 1800 + Math.random() * 500, 900, .08, .1 * g, pan);
   else if (kind === 'heal') tone(t, 'sine', 660, 990, .2, .06 * g, pan);
+  else if (kind === 'shotgun') { noiseHit(t, .3, 'lowpass', 2600, 300, .75 * g, pan); tone(t, 'sine', 130, 50, .18, .25 * g, pan); }
+  else if (kind === 'flame') noiseHit(t, .35, 'bandpass', 700, 400, .22 * g, pan, .6, .05);
+  else if (kind === 'mortar') { tone(t, 'sine', 95, 45, .25, .45 * g, pan); noiseHit(t, .2, 'lowpass', 900, 200, .3 * g, pan); }
+  else if (kind === 'bark') { tone(t, 'sawtooth', 520, 330, .07, .12 * g, pan); tone(t + .11, 'sawtooth', 560, 340, .07, .1 * g, pan); }
+  else if (kind === 'wrench') tone(t, 'triangle', 1400, 1100, .05, .06 * g, pan);
 }
 function sfxBoom(r, x, y, z) {
   if (!AU.ctx || AU.muted || AU.booms <= 0) return;
@@ -416,6 +433,6 @@ function initFX() {
 }
 function updateFX(dt) {
   updateDebris(dt);
-  fire.update(dt); smoke.update(dt);
+  fire.update(dt, false); smoke.update(dt, true);
   updateFlash(dt);
 }

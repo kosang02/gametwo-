@@ -45,11 +45,18 @@ const TOOLSET = {
   units: [
     { id: 'rifle', name: '소총병', desc: '균형 잡힌 기본 보병', unit: 'rifle' },
     { id: 'mg', name: '기관총병', desc: '연사로 보병을 제압', unit: 'mg' },
-    { id: 'sniper', name: '저격병', desc: '먼 거리에서 한 방', unit: 'sniper' },
-    { id: 'rocket', name: '로켓병', desc: '전차와 벽을 부숨', unit: 'rocket' },
+    { id: 'shotgun', name: '돌격병', desc: '근접 산탄, 맞으면 날아감', unit: 'shotgun' },
+    { id: 'sniper', name: '저격병', desc: '먼 거리에서 한 방, 관통', unit: 'sniper' },
+    { id: 'rocket', name: '로켓병', desc: '전차·헬기·벽 파괴', unit: 'rocket' },
     { id: 'grenadier', name: '척탄병', desc: '엄폐물 너머로 수류탄', unit: 'grenadier' },
+    { id: 'flame', name: '화염방사병', desc: '불길로 태움, 죽으면 폭발', unit: 'flame' },
+    { id: 'mortar', name: '박격포병', desc: '멀리서 곡사 포격', unit: 'mortar' },
+    { id: 'sapper', name: '폭파병', desc: '벽과 전차에 폭약 설치', unit: 'sapper' },
+    { id: 'engineer', name: '공병', desc: '모래주머니·지뢰, 전차 수리', unit: 'engineer' },
     { id: 'medic', name: '의무병', desc: '아군을 치료', unit: 'medic' },
+    { id: 'dog', name: '군견', desc: '빠르게 달려가 물어뜯음', unit: 'dog' },
     { id: 'tank', name: '전차', desc: '포격과 동축 기관총', unit: 'tank' },
+    { id: 'heli', name: '공격 헬기', desc: '로켓과 기관포, 대공 사격에 약함', unit: 'heli' },
   ],
   fire: [
     { id: 'grenade', name: '수류탄', desc: '시점에서 던지기', icon: 'grenade', mode: 'click', r: 3 },
@@ -136,8 +143,9 @@ function toolUp(cx, cy) {
       u.vx = Math.max(-45, Math.min(45, (b.x - a.x) / dt * 1.5)); u.vz = Math.max(-45, Math.min(45, (b.z - a.z) / dt * 1.5));
       u.vy = 4 + Math.min(10, Math.hypot(u.vx, u.vz) * .15);
     }
-    u.stun = u.type === 'tank' ? 0 : 1.6; u.tiltV = 8 * (Math.random() < .5 ? 1 : -1); u.fallYaw = Math.atan2(u.vx, u.vz);
-    if (u.type === 'tank') u.tilt = 0;
+    const veh = !!UT[u.type].veh;
+    u.stun = veh ? 0 : 1.6; u.tiltV = 8 * (Math.random() < .5 ? 1 : -1); u.fallYaw = Math.atan2(u.vx, u.vz);
+    if (veh) u.tilt = 0;
     drag.held = null;
     return;
   }
@@ -153,11 +161,12 @@ function updateHeld(dt) {
   u.stun = 99;
   u.tilt = Math.sin(performance.now() * .006) * .25; u.fallYaw = u.yaw;
 }
+function unitSpacing(t) { return t === 'tank' ? 6.5 : t === 'heli' ? 8 : t === 'dog' ? 1.4 : 1.7; }
 function placeUnits(h, formation) {
   const t = ui.tool.unit, n = formation ? ui.count : 1;
-  const tank = t === 'tank';
+  const tank = !!UT[t].veh;
   const yaw = ui.team === 0 ? Math.PI / 2 : -Math.PI / 2;
-  const cols = Math.ceil(Math.sqrt(n)), sp = tank ? 6.5 : 1.7;
+  const cols = Math.ceil(Math.sqrt(n)), sp = unitSpacing(t);
   // 적 방향을 앞으로 하는 대형
   const fx = Math.sin(yaw), fz = Math.cos(yaw), rx = fz, rz = -fx;
   let placed = 0;
@@ -299,7 +308,7 @@ function updatePreview() {
   const h = drag.active && drag.mode === 'tool' && drag.last ? drag.last : pickGround(hover.x, hover.y);
   if (!h) return;
   let r = 1, col = 0xffffff;
-  if (t.unit) { const n = ui.count, sp = t.unit === 'tank' ? 6.5 : 1.7; r = Math.max(1.2, Math.ceil(Math.sqrt(n)) * sp * .6); col = TEAMHEX[ui.team]; }
+  if (t.unit) { const n = ui.count, sp = unitSpacing(t.unit); r = Math.max(1.2, Math.ceil(Math.sqrt(n)) * sp * .6); col = TEAMHEX[ui.team]; }
   else if (t.brush) { r = ui.brush + .5; col = t.id === 'remove' ? 0xff5040 : 0xffe0a0; }
   else if (t.r) { r = t.r; col = 0xff7050; }
   else if (t.mode === 'line') { r = 1; col = 0xffd27a; }
@@ -324,11 +333,11 @@ function drawOverlay() {
   const v = new THREE.Vector3();
   for (const u of units) {
     if (u.dead) continue;
-    const tank = u.type === 'tank';
+    const tank = !!UT[u.type].veh;
     if (u.hp >= u.maxhp && !(tank && phase !== 'setup')) continue;
     const d = Math.hypot(camera.position.x - u.x, camera.position.y - u.y, camera.position.z - u.z);
     if (d > (tank ? 220 : 120)) continue;
-    v.set(u.x, u.y + (tank ? 4.2 : 3.2), u.z).project(camera);
+    v.set(u.x, u.y + u.h + (tank ? 1.5 : .6), u.z).project(camera);
     if (v.z > 1 || v.x < -1.1 || v.x > 1.1 || v.y < -1.1 || v.y > 1.1) continue;
     const sx = (v.x + 1) / 2 * w, sy = (1 - v.y) / 2 * h;
     const bw = (tank ? 46 : 26) * dpr * Math.max(.5, Math.min(1.2, 60 / d)), bh = Math.max(2, 3.5 * dpr * Math.max(.6, Math.min(1, 60 / d)));
@@ -368,11 +377,11 @@ function buildUI() {
   $('helpClose').onclick = toggleHelp;
   $('btnArmy').onclick = () => { clearUnits(); placeDefaultArmies(); toast('기본 군대를 배치했습니다'); };
   $('btnClear').onclick = () => { clearUnits(); toast('모든 병력을 제거했습니다'); };
-  $('btnMap').onclick = newMap;
+  $('btnMap').onclick = () => openMapPicker();
   $('btnAuto').onclick = () => { ui.auto = !ui.auto; refreshHUD(); toast(ui.auto ? '자동 증원 켜짐: 양측에 계속 병력이 투입됩니다' : '자동 증원 꺼짐'); };
   $('bAgain').onclick = () => { hideBanner(); resetToSetup(); };
   $('bWatch').onclick = hideBanner;
-  $('bNew').onclick = () => { hideBanner(); newMap(); };
+  $('bNew').onclick = () => { hideBanner(); openMapPicker(); };
   document.addEventListener('fullscreenchange', refreshHUD);
   document.addEventListener('webkitfullscreenchange', refreshHUD);
   setTab('units');
@@ -531,14 +540,17 @@ function makeThumbs() {
     sc.add(tmp);
     boxMesh = tmp;
     for (const team of [0, 1]) for (const type of Object.keys(UT)) {
-      const tank = type === 'tank';
-      const u = { type, team, x: 0, y: 0, z: 0, yaw: .55, tilt: 0, ryo: 0, flash: 0, moving: false, walk: 0, dead: false, stun: 0,
-        shooting: false, aimPitch: 0, skin: 0, turret: .2, barrel: .06, recoil: 0, deadT: 0, fallYaw: 0 };
+      const tank = type === 'tank' || type === 'heli';
+      const soldier = !tank && type !== 'dog';
+      const u = { type, team, x: 0, y: 0, z: 0, yaw: soldier || type === 'dog' ? 1.15 : .55, tilt: 0, ryo: 0, flash: 0, moving: false, walk: 1.2, dead: false, stun: 0,
+        shooting: soldier, aimPitch: 0, skin: 0, turret: .2, barrel: .06, recoil: 0, deadT: 0, fallYaw: 0, hpitch: 0, hroll: 0, bite: 0 };
       boxN = 0;
-      if (tank) drawTank(u); else drawSoldier(u);
+      drawUnit(u);
       tmp.count = boxN; tmp.instanceMatrix.needsUpdate = true; tmp.instanceColor.needsUpdate = true;
-      if (tank) { cam2.position.set(7.6, 5.2, 9.2); cam2.lookAt(0, 1.5, .3); }
-      else { cam2.position.set(2.5, 2.1, 3.6); cam2.lookAt(0, 1.3, 0); }
+      if (type === 'heli') { cam2.position.set(6.2, 4.4, 7.2); cam2.lookAt(0, 1.3, -.9); }
+      else if (type === 'dog') { cam2.position.set(1.9, 1.5, 2.5); cam2.lookAt(0, .65, 0); }
+      else if (tank) { cam2.position.set(7.6, 5.2, 9.2); cam2.lookAt(0, 1.5, .3); }
+      else { cam2.position.set(1.2, 2.0, 4.3); cam2.lookAt(.35, 1.32, 0); }
       r.render(sc, cam2);
       thumbs[team + ':' + type] = r.domElement.toDataURL();
     }

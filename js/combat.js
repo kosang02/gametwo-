@@ -21,6 +21,8 @@ const PK = {
   bomb:    { g: 1, r: 5.2, power: 400, box: [.6, .6, 1.6], col: 'nuke' },
   missile: { g: 0, r: 7, power: 900, at: 1.3, box: [.6, .6, 2.6], col: 'steel' },
   nuke:    { g: .3, r: 19, power: 6000, box: [1.4, 1.4, 2.6], col: 'nuke' },
+  mortar:  { g: 1, r: 3.6, power: 230, box: [.3, .3, .6], col: 'shell' },
+  charge:  { g: 1, r: 5, power: 380, at: 2.2, bounce: true, sticky: true, box: [.55, .4, .55], col: 'red' },
 };
 function addProj(kind, x, y, z, vx, vy, vz, team, opt) {
   const p = { kind, x, y, z, vx, vy, vz, team, life: 0, fuse: 0, dmg: 0, pierce: 0, owner: null, bounces: 0, trail: 0 };
@@ -34,9 +36,9 @@ function fireBullet(u, sx, sy, sz, tx, ty, tz, dmg, spread, speed, pierce, snd) 
   const d = Math.hypot(dx, dy, dz) || 1;
   dx = dx / d + _spread(spread); dy = dy / d + _spread(spread) * .6; dz = dz / d + _spread(spread);
   const n = Math.hypot(dx, dy, dz);
-  addProj('bullet', sx, sy, sz, dx / n * speed, dy / n * speed, dz / n * speed, u.team, { dmg, pierce: pierce ? 2 : 0, owner: u, sniper: snd === 'sniper' });
-  muzzleFlash(sx, sy, sz, snd === 'sniper');
-  sfxShot(snd, sx, sy, sz);
+  const p = addProj('bullet', sx, sy, sz, dx / n * speed, dy / n * speed, dz / n * speed, u.team, { dmg, pierce: pierce ? 2 : 0, owner: u, sniper: snd === 'sniper' });
+  if (snd) { muzzleFlash(sx, sy, sz, snd === 'sniper' || snd === 'shotgun'); sfxShot(snd, sx, sy, sz); }
+  return p;
 }
 // 탄도 계산: 속도 v로 (dx,dz 수평거리 d, 높이차 h) 맞히는 발사각 (낮은 궤적)
 function ballisticAngle(d, h, v, g, high) {
@@ -48,6 +50,7 @@ function ballisticAngle(d, h, v, g, high) {
 function fireWeapon(u, tx, ty, tz, breach) {
   const T = UT[u.type];
   const fwd = u.type === 'tank' ? u.turret : u.yaw;
+  const td = Math.hypot(tx - u.x, tz - u.z);
   const mx = u.x + Math.sin(fwd) * .9, mz = u.z + Math.cos(fwd) * .9, my = u.y + 1.55;
   switch (T.wpn) {
     case 'rifle':
@@ -82,6 +85,49 @@ function fireWeapon(u, tx, ty, tz, breach) {
       sfxShot('throw', sx, sy, sz);
       u.cd = T.cd + Math.random() * 1; break;
     }
+    case 'shotgun':
+      for (let k = 0; k < 8; k++) {
+        const p = fireBullet(u, mx, my, mz, tx, ty, tz, T.dmg, T.spread, 115, false, k ? null : 'shotgun');
+        p.knock = 2.6; p.maxLife = .2;
+      }
+      u.cd = T.cd + Math.random() * .3; break;
+    case 'flame': fireFlame(u, tx, ty, tz); break;
+    case 'mortar': {
+      const sx = u.x + Math.sin(fwd) * .8, sy = u.y + .9, sz = u.z + Math.cos(fwd) * .8;
+      const err = 1.5 + td * .035;
+      const ex = tx + _spread(err), ez = tz + _spread(err);
+      const dx = ex - sx, dz = ez - sz, X = Math.hypot(dx, dz), Y = ty - 1 - sy, th = 1.15, c2 = Math.cos(th) ** 2;
+      const den = Math.max(1, 2 * c2 * (X * Math.tan(th) - Y)), v = Math.min(62, Math.sqrt(GRAV * X * X / den));
+      const yj = Math.atan2(dx, dz);
+      addProj('mortar', sx, sy, sz, Math.sin(yj) * Math.cos(th) * v, Math.sin(th) * v, Math.cos(yj) * Math.cos(th) * v, u.team, { owner: u });
+      smokePuff(sx, sy + .5, sz, .7, 6, false); muzzleFlash(sx, sy + .6, sz, true);
+      sfxShot('mortar', sx, sy, sz);
+      u.cd = T.cd + Math.random() * 1.5; break;
+    }
+    case 'charge':
+      addProj('charge', u.x + Math.sin(fwd) * .7, u.y + .6, u.z + Math.cos(fwd) * .7, Math.sin(fwd) * 3, 2, Math.cos(fwd) * 3, u.team, { fuse: 3.2, owner: u });
+      sfxShot('throw', u.x, u.y, u.z);
+      u.cd = T.cd; u.fleeT = 3.4; break;
+    case 'bite': {
+      const tg = u.target;
+      if (tg && !tg.dead && Math.hypot(tg.x - u.x, tg.z - u.z) < 2.9 && Math.abs(tg.y - u.y) < 2.2) {
+        const veh = UT[tg.type].veh, dl = Math.hypot(tg.x - u.x, tg.z - u.z) || 1;
+        damageUnit(tg, T.dmg * (veh ? .12 : 1), u.team, (tg.x - u.x) / dl, (tg.z - u.z) / dl);
+        if (!veh) { knockUnit(tg, (tg.x - u.x) / dl * 4, 2, (tg.z - u.z) / dl * 4); bloodBurst(tg.x, tg.y + 1.2, tg.z, 0, 0, 6); }
+        sfxShot('bark', u.x, u.y, u.z);
+      }
+      u.bite = .25; u.cd = T.cd + Math.random() * .3; break;
+    }
+    case 'heli': {
+      const side = (u.burst++ & 1) ? 1 : -1, c = Math.cos(u.yaw), sn = Math.sin(u.yaw);
+      const lx = 1.2 * side, lz = .9;
+      const sx = u.x + c * lx + sn * lz, sy = u.y + .9, sz = u.z - sn * lx + c * lz;
+      let dx = tx - sx, dy = ty - sy, dz = tz - sz; const d = Math.hypot(dx, dy, dz) || 1;
+      dx = dx / d + _spread(.035); dy = dy / d + _spread(.03); dz = dz / d + _spread(.035);
+      addProj('rocket', sx, sy, sz, dx * 32, dy * 32, dz * 32, u.team, { owner: u });
+      smokePuff(sx, sy, sz, .6, 4, false); sfxShot('rocket', sx, sy, sz);
+      u.cd = u.burst & 1 ? .22 : T.cd + Math.random() * 1.2; break;
+    }
     case 'cannon': {
       const v = 85, g = GRAV * PK.shell.g;
       const bx = u.x + Math.sin(u.turret) * 4.6, bz = u.z + Math.cos(u.turret) * 4.6, by = u.y + 2.45;
@@ -92,11 +138,63 @@ function fireWeapon(u, tx, ty, tz, breach) {
       const yawj = u.turret + _spread(.015 + d * .00025);
       addProj('shell', bx, by, bz, Math.sin(yawj) * Math.cos(a) * v, Math.sin(a) * v, Math.cos(yawj) * Math.cos(a) * v, u.team, { owner: u });
       fireBurst(bx, by, bz, .9, 10); smokePuff(bx, by, bz, 1.2, 10, false);
-      flashLight(bx, by, bz, 2.5, 18, .12);
+      flashLight(bx, by, bz, 1.2, 16, .12);
       u.recoil = 1; u.vx -= Math.sin(u.turret) * 2; u.vz -= Math.cos(u.turret) * 2;
       sfxShot('cannon', bx, by, bz); addShake(.25, bx, by, bz);
       u.cd = T.cd + Math.random() * 1.4; break;
     }
+  }
+}
+
+function fireFlame(u, tx, ty, tz) {
+  const fwd = u.yaw, sx = u.x + Math.sin(fwd) * .95, sy = u.y + 1.4, sz = u.z + Math.cos(fwd) * .95;
+  let dx = tx - sx, dy = ty - sy, dz = tz - sz;
+  const d = Math.hypot(dx, dy, dz) || 1; dx /= d; dy /= d; dz /= d;
+  for (let k = 0; k < 3; k++) {
+    const sp = 15 + Math.random() * 6;
+    fire.spawn(sx, sy, sz, (dx + R(.24)) * sp, (dy + R(.16)) * sp + 1, (dz + R(.24)) * sp, .45 + Math.random() * .25, .3, 2.3, C.hot0, C.fire1, 1.7, -2.5);
+  }
+  if (Math.random() < .15) smoke.spawn(sx + dx * 8, sy + 1, sz + dz * 8, R(1), 2, R(1), 2, 1.2, 3.5, C.dark0, C.dark1, .8, -.8);
+  const range = 12.5;
+  unitsNear(u.x, u.z, range + 2, v => {
+    if (v.dead || v.team === u.team || UT[v.type].air) return;
+    const ox = v.x - u.x, oz = v.z - u.z, dist = Math.hypot(ox, oz);
+    if (dist > range || Math.abs(v.y - u.y) > 4) return;
+    if (Math.abs(angDiff(fwd, Math.atan2(ox, oz))) > .32 + 1 / (dist + 1)) return;
+    damageUnit(v, UT[v.type].veh ? 1.2 : 3.4, u.team, ox / (dist || 1), oz / (dist || 1));
+    v.burn = Math.max(v.burn, 3.5); v.burnTeam = u.team;
+  });
+  if (Math.random() < .35) { const h = raycast(sx, sy, sz, dx, dy, dz, range); if (h) igniteVoxel(h.x, h.y, h.z); }
+  u.sndT = (u.sndT || 0) - UT.flame.cd;
+  if (u.sndT <= 0) { u.sndT = .3; sfxShot('flame', sx, sy, sz); }
+  u.cd = UT.flame.cd;
+}
+
+// ───────────── 지뢰 ─────────────
+const mines = [];
+function placeMine(x, z, team) {
+  const y = surfaceY(x, z);
+  if (y <= WATER_Y + .2) return;
+  mines.push({ x, y, z, team, arm: 1.5, t: Math.random() * 2, boom: false });
+}
+function updateMines(dt) {
+  for (let i = mines.length - 1; i >= 0; i--) {
+    const m = mines[i];
+    m.t += dt;
+    if (!solidAt(Math.floor(m.x), Math.floor(m.y - .5), Math.floor(m.z))) { m.y -= dt * 12; if (m.y < 0) mines.splice(i, 1); continue; }
+    if (m.arm > 0) { m.arm -= dt; continue; }
+    let hit = m.boom;
+    if (!hit) unitsNear(m.x, m.z, 3, u => {
+      if (!hit && !u.dead && u.team !== m.team && !UT[u.type].air && Math.hypot(u.x - m.x, u.z - m.z) < u.hw + .7 && Math.abs(u.y - m.y) < 1.5) hit = true;
+    });
+    if (hit) { mines.splice(i, 1); explode(m.x, m.y + .3, m.z, 3, { power: 280, team: m.team, at: 1.8 }); }
+  }
+}
+function drawMines() {
+  for (const m of mines) {
+    _B.makeTranslation(m.x, m.y, m.z);
+    part(_B, 0, 0, 0, 0, 0, .07, 0, .9, .14, .9, PALC.mine, 0);
+    part(_B, 0, 0, 0, 0, 0, .18, 0, .18, .1, .18, (m.t % 1) < .5 && m.arm <= 0 ? PALC['team' + m.team] : PALC.boot, 0);
   }
 }
 
@@ -118,7 +216,7 @@ function hitUnitOnSeg(p, x, y, z, dx, dy, dz) {
   const len = Math.hypot(dx, dz);
   unitsNear(x + dx / 2, z + dz / 2, len / 2 + 4, u => {
     if (u.dead || u === p.owner || (p.team >= 0 && u.team === p.team) || p.hitSet && p.hitSet.has(u)) return;
-    const hw = u.type === 'tank' ? 2.4 : .45, hh = u.stun > 0 ? 1.4 : u.h;
+    const hw = u.hw + .08, hh = u.stun > 0 && !UT[u.type].veh ? 1.4 : u.h;
     const t = segAABB(x, y, z, dx, dy, dz, u.x - hw, u.y, u.z - hw, u.x + hw, u.y + hh, u.z + hw);
     if (t >= 0 && t < bt) { bt = t; best = u; }
   });
@@ -151,9 +249,16 @@ function stepProj(p, dt) {
   } else if (p.kind === 'napalm' && Math.random() < dt * 40) {
     fire.spawn(p.x, p.y, p.z, 0, 0, 0, .3, .8, .3, C.fire0, C.fire1, 0, 0);
   }
+  if (p.kind === 'mortar' && p.vy < 0 && !p.whistled) { p.whistled = true; sfxWhistle(p.x, p.y, p.z, .9); }
+  if (p.maxLife && p.life > p.maxLife) return false;
   if (p.fuse > 0) {
     p.fuse -= dt;
     if (p.fuse <= 0) { detonate(p, p.x, p.y, p.z); return false; }
+  }
+  if (p.stuck) {
+    // 붙어 있던 벽이 사라지면 다시 떨어짐
+    if (!solidAt(Math.floor(p.x + p.sx), Math.floor(p.y + p.sy), Math.floor(p.z + p.sz))) p.stuck = false;
+    else return true;
   }
   p.vy -= GRAV * K.g * dt;
   if (bhole) {
@@ -164,16 +269,18 @@ function stepProj(p, dt) {
   const len = Math.hypot(dx, dy, dz);
   if (len < 1e-6) return true;
   // 유닛 / 지형 교차
-  const uh = (p.kind === 'grenade' || p.kind === 'bomblet') ? null : hitUnitOnSeg(p, p.x, p.y, p.z, dx, dy, dz);
+  const uh = (K.bounce) ? null : hitUnitOnSeg(p, p.x, p.y, p.z, dx, dy, dz);
   const vh = raycast(p.x, p.y, p.z, dx / len, dy / len, dz / len, len);
   const tv = vh ? vh.t / len : 2;
   if (uh && uh[1] <= tv) {
     const u = uh[0], t = uh[1];
     const hx = p.x + dx * t, hy = p.y + dy * t, hz = p.z + dz * t;
     if (p.kind === 'bullet') {
-      const tank = u.type === 'tank';
+      const tank = !!UT[u.type].veh;
       const dl = Math.hypot(p.vx, p.vz) || 1;
-      damageUnit(u, tank ? p.dmg * .06 : p.dmg, p.team, p.vx / dl, p.vz / dl);
+      const armor = u.type === 'tank' ? .06 : u.type === 'heli' ? (p.sniper ? .5 : .25) : 1;
+      damageUnit(u, p.dmg * armor, p.team, p.vx / dl, p.vz / dl);
+      if (p.knock && !tank) knockUnit(u, p.vx / dl * p.knock, .9, p.vz / dl * p.knock);
       if (tank) sparks(hx, hy, hz, 5, 8);
       else {
         bloodBurst(hx, hy, hz, p.vx / dl, p.vz / dl, 6);
@@ -188,6 +295,12 @@ function stepProj(p, dt) {
   } else if (vh) {
     const hx = p.x + dx * tv, hy = p.y + dy * tv, hz = p.z + dz * tv;
     if (p.kind === 'bullet') { bulletHitVoxel(p, vh, hx, hy, hz); return false; }
+    if (K.sticky) {
+      p.x = hx - dx / len * .2; p.y = hy - dy / len * .2; p.z = hz - dz / len * .2;
+      p.vx = p.vy = p.vz = 0; p.stuck = true; p.sx = -vh.nx * .6; p.sy = -vh.ny * .6; p.sz = -vh.nz * .6;
+      sfxShot('clink', p.x, p.y, p.z);
+      return true;
+    }
     if (K.bounce && p.bounces < 6) {
       // 반사
       const nx = vh.nx, ny = vh.ny, nz = vh.nz;
@@ -210,8 +323,8 @@ function stepProj(p, dt) {
 }
 function bulletHitVoxel(p, vh, hx, hy, hz) {
   const t = vh.v, m = MAT[t];
-  if (t === M.TNT) { igniteTNT(vh.x, vh.y, vh.z); return; }
-  if (vh.y > 0 && m.hard < .35 && Math.random() < (p.sniper ? .9 : .28)) {
+  if (EXPLOSIVE[t]) { igniteTNT(vh.x, vh.y, vh.z); return; }
+  if (vh.y > 0 && m.hard < .35 && Math.random() < (m.hard < .03 ? 1 : p.sniper ? .9 : .28)) {
     setVox(vh.x, vh.y, vh.z, 0);
     spawnDebrisVoxel(vh.x, vh.y, vh.z, t, vh.nx * 4 + R(3), 3 + Math.random() * 3, vh.nz * 4 + R(3));
     if (m.flam > 0 && Math.random() < .03) igniteVoxel(vh.x, vh.y, vh.z);
@@ -274,7 +387,7 @@ function explode(x, y, z, r, o) {
       continue;
     }
     if (!t) continue;
-    if (t === M.TNT) { tnt++; vox[i] = 0; vtint[i] = 0; markDirty(X, Y, Z); continue; }
+    if (EXPLOSIVE[t]) { tnt += t === M.TNT ? 1 : .55; vox[i] = 0; vtint[i] = 0; markDirty(X, Y, Z); continue; }
     const f = 1 - d / r;
     const hard = MAT[t].hard * (nuke ? .25 : 1);
     if (Math.random() < hard * 1.5 - f * .9) {
@@ -295,14 +408,14 @@ function explode(x, y, z, r, o) {
   // 유닛
   const reach = r * 2.1;
   unitsNear(x, z, reach + 3, u => {
-    const ux = u.x, uy = u.y + (u.type === 'tank' ? 1.4 : 1.2), uz = u.z;
+    const ux = u.x, uy = u.y + u.h * .5, uz = u.z;
     let dx = ux - x, dy = uy - y, dz = uz - z;
     const d = Math.hypot(dx, dy, dz);
     if (d > reach) return;
     let f = Math.max(0, 1 - d / reach);
     if (u === o.direct) f = 1;
     const cover = d > r * .9 && !lineClear(x, y + .2, z, ux, uy, uz) ? .3 : 1;
-    const tank = u.type === 'tank';
+    const tank = !!UT[u.type].veh;
     let dmg = power * Math.pow(f, 1.5) * cover;
     if (tank) dmg *= (o.at || 1) * (nuke ? 1 : .8);
     const dl = d || 1;
@@ -313,6 +426,7 @@ function explode(x, y, z, r, o) {
     if ((o.fire || nuke) && f > .3) { u.burn = Math.max(u.burn, 3 + Math.random() * 2); u.burnTeam = o.team; }
   });
   pushDebris(x, y, z, r * 2.5, Math.min(40, power / 14));
+  for (const m of mines) if (Math.hypot(m.x - x, m.y - y, m.z - z) < r * 1.3) m.boom = true;
 
   // 시각/청각 효과
   const big = Math.min(1, r / 8);
@@ -320,7 +434,7 @@ function explode(x, y, z, r, o) {
   const gy = groundBelow(x, y + 1, z);
   if (gy > y - r) dustBurst(x, Math.max(y - r * .5, gy - 1), z, r, Math.min(60, 6 + r * 4));
   if (y < WATER_Y + 2 && y > WATER_Y - r && isWaterArea(x, z)) splash(x, z, r);
-  flashLight(x, y + 1, z, 3 + big * 6, r * 9 + 10, .22 + big * .3);
+  flashLight(x, y + 1, z, 1.6 + big * 3, r * 8 + 10, .25 + big * .3);
   if (r >= 2.5) shockRing(x, Math.max(y - r * .3, gy), z, r * (nuke ? 9 : 3.4), nuke ? 1.8 : .45 + big * .3);
   addShake(Math.min(2.4, r * .13 + (nuke ? 2 : 0)), x, y, z);
   sfxBoom(r, x, y, z);
@@ -329,7 +443,7 @@ function explode(x, y, z, r, o) {
 function boomFX(x, y, z, r, nuke) {
   const rr = Math.min(r, 9);
   // 순간 섬광
-  fire.spawn(x, y, z, 0, 0, 0, .14, rr * 3.2, rr * 1.5, C.hot0, C.hot1, 0, 0);
+  fire.spawn(x, y, z, 0, 0, 0, .12, rr * 1.7, rr * 1.1, C.flash0, C.hot1, 0, 0);
   // 화구
   const nf = Math.min(130, 14 + r * 7);
   for (let k = 0; k < nf; k++) {
@@ -354,10 +468,11 @@ function splash(x, z, r) {
     smoke.spawn(x + R(r), WATER_Y, z + R(r), R(4), 8 + Math.random() * 14, R(4), 1 + Math.random(), .8, 2.5, C.steam0, C.steam1, .8, GRAV * .7);
 }
 function igniteTNT(x, y, z) {
-  const i = vidx(x, y, z);
-  if (vox[i] !== M.TNT) return;
+  const i = vidx(x, y, z), t = vox[i];
+  if (!EXPLOSIVE[t]) return;
   vox[i] = 0; markDirty(x, y, z);
-  queueExplosion(x + .5, y + .5, z + .5, 3, { power: 220, team: -1, fire: true }, .05);
+  if (t === M.TNT) queueExplosion(x + .5, y + .5, z + .5, 3, { power: 220, team: -1, fire: true }, .05);
+  else queueExplosion(x + .5, y + .5, z + .5, 2.6, { power: 170, team: -1, fire: true }, .08 + Math.random() * .12);
 }
 
 // ───────────── 화재 ─────────────
@@ -366,7 +481,7 @@ let fireTick = 0;
 function igniteVoxel(x, y, z) {
   if (x < 0 || x >= SX || y < 1 || y >= SY || z < 0 || z >= SZ) return;
   const i = vidx(x, y, z), t = vox[i];
-  if (t === M.TNT) { igniteTNT(x, y, z); return; }
+  if (EXPLOSIVE[t]) { igniteTNT(x, y, z); return; }
   if (!t || MAT[t].flam <= 0 || burning.has(i) || burning.size > 2200) return;
   burning.set(i, 3 + Math.random() * 5);
 }
@@ -519,8 +634,12 @@ function drawProjectiles() {
     _e.set(pitch, yaw, 0, 'YXZ'); _q.setFromEuler(_e);
     _pos.set(p.x, p.y, p.z); _B.compose(_pos, _q, _scl);
     const b = K.box;
-    if (p.kind === 'grenade' || p.kind === 'bomblet') _B.makeTranslation(p.x, p.y, p.z);
+    if (K.bounce) _B.makeTranslation(p.x, p.y, p.z);
     part(_B, 0, 0, 0, 0, 0, 0, 0, b[0], b[1], b[2], PALC[K.col], 0);
+    if (p.kind === 'charge') {
+      const blink = Math.floor(p.life * (p.fuse < 1 ? 12 : 4)) & 1;
+      part(_B, 0, 0, 0, 0, 0, .28, 0, .16, .12, .16, blink ? PALC.yellow : PALC.boot, 0);
+    }
     if (p.kind === 'nuke') {
       // 낙하산
       _B.makeTranslation(p.x, p.y, p.z);
@@ -631,7 +750,7 @@ function updateBlackhole(dt) {
     if (X < 0 || X >= SX || Y < 1 || Y >= SY || Z < 0 || Z >= SZ) continue;
     const t = vox[vidx(X, Y, Z)];
     if (!t) continue;
-    if (t === M.TNT) { igniteTNT(X, Y, Z); continue; }
+    if (EXPLOSIVE[t]) { igniteTNT(X, Y, Z); continue; }
     setVox(X, Y, Z, 0);
     if (Math.random() < .5) {
       const ax = b.x - X, az = b.z - Z, d = Math.hypot(ax, az) + .1;
@@ -647,9 +766,9 @@ function updateBlackhole(dt) {
   unitsNear(b.x, b.z, b.r * 4 + 4, u => {
     const ax = b.x - u.x, ay = b.y - (u.y + 1.2), az = b.z - u.z, d = Math.hypot(ax, ay, az) + .3;
     if (d > b.r * 4) return;
-    const f = (u.type === 'tank' ? 18 : 55) / (d + 2) * dt * 4;
+    const f = (UT[u.type].veh ? 18 : 55) / (d + 2) * dt * 4;
     u.vx += ax / d * f; u.vy += ay / d * f + GRAV * dt * .8; u.vz += az / d * f;
-    if (u.type !== 'tank') { u.stun = Math.max(u.stun, .6); u.grounded = false; u.tiltV = u.tiltV || 6; }
+    if (!UT[u.type].veh) { u.stun = Math.max(u.stun, .6); u.grounded = false; u.tiltV = u.tiltV || 6; }
     if (d < b.r * .45 + .8 && !u.dead) { damageUnit(u, 9999, -1, 0, 0); }
   });
   if (b.t > b.dur) endBlackhole();
@@ -662,6 +781,7 @@ function updateStrikes(dt) {
   }
 }
 function updateCombat(dt) {
+  updateMines(dt);
   updatePending(dt);
   updateStrikes(dt);
   updateProjectiles(dt);

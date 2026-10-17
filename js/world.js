@@ -4,14 +4,15 @@
 // ─────────────────────────────────────────────────────────────
 const SX = 192, SY = 64, SZ = 192, CS = 16;
 const CX = SX / CS, CY = SY / CS, CZ = SZ / CS;
-const WATER_Y = 11.6;
+let WATER_Y = 11.6;
 const GRAV = 26;
 const vox = new Uint8Array(SX * SY * SZ);
 const vtint = new Uint8Array(SX * SY * SZ);
 const vidx = (x, y, z) => (y * SZ + z) * SX + x;
 
 const M = { AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, SAND: 4, WOOD: 5, LEAF: 6, BRICK: 7, CONCRETE: 8,
-  METAL: 9, TNT: 10, BEDROCK: 11, SANDBAG: 12, PLANK: 13, ROOF: 14 };
+  METAL: 9, TNT: 10, BEDROCK: 11, SANDBAG: 12, PLANK: 13, ROOF: 14, SNOW: 15, ICE: 16, ASPHALT: 17, GLASS: 18,
+  BARREL: 19, SANDSTONE: 20, CACTUS: 21, CASTLE: 22, PINE: 23, CAR: 24, ROADLINE: 25, FLAGR: 26, FLAGB: 27, PAVE: 28 };
 const MAT = [];
 function defMat(id, name, col, hard, flam, jit) { MAT[id] = { id, name, col, hard, flam, jit }; }
 defMat(0, '공기', [0, 0, 0], 0, 0, 0);
@@ -29,6 +30,22 @@ defMat(11, '기반암', [48, 46, 50], 9, 0, .05);
 defMat(12, '모래주머니', [168, 150, 106], .3, 0, .07);
 defMat(13, '판자', [150, 108, 64], .2, .03, .06);
 defMat(14, '지붕', [132, 56, 44], .3, 0, .05);
+defMat(15, '눈', [236, 240, 246], .07, 0, .025);
+defMat(16, '얼음', [170, 210, 230], .05, 0, .05);
+defMat(17, '아스팔트', [62, 64, 68], .45, 0, .07);
+defMat(18, '유리', [116, 166, 188], .01, 0, .04);
+defMat(19, '연료통', [188, 46, 36], .05, 1, .03);
+defMat(20, '사암', [206, 150, 96], .4, 0, .04);
+defMat(21, '선인장', [72, 130, 64], .05, .03, .08);
+defMat(22, '성벽', [136, 134, 130], .65, 0, .05);
+defMat(23, '침엽수', [38, 84, 54], .04, .06, .1);
+defMat(24, '자동차', [180, 40, 36], .45, 0, .02);
+defMat(25, '차선', [228, 200, 90], .45, 0, .04);
+defMat(26, '붉은 깃발', [204, 44, 38], .03, .1, .04);
+defMat(27, '푸른 깃발', [46, 92, 196], .03, .1, .04);
+defMat(28, '보도', [150, 148, 142], .45, 0, .04);
+const EXPLOSIVE = new Uint8Array(32); EXPLOSIVE[10] = 1; EXPLOSIVE[19] = 1;
+const CAR_COLS = [[176, 40, 34], [40, 78, 158], [222, 196, 64], [226, 226, 222], [44, 46, 50], [62, 128, 74], [214, 110, 40]];
 
 const S2L = new Float32Array(256);
 for (let i = 0; i < 256; i++) { const c = i / 255; S2L[i] = c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); }
@@ -72,7 +89,7 @@ function groundBelow(x, y, z) {
   for (let yy = Math.min(SY - 1, Math.floor(y)); yy >= 0; yy--) if (vox[vidx(x, yy, z)]) return yy + 1;
   return 0;
 }
-const NATURAL = new Set([1, 2, 3, 4]);
+const NATURAL = new Set([1, 2, 3, 4, 15, 16, 17, 20, 25, 28]);
 function naturalTop(x, z) {
   const y = surfaceY(x, z);
   return NATURAL.has(getV(Math.floor(x), y - 1, Math.floor(z)));
@@ -153,6 +170,20 @@ function voxColor(t, x, y, z, face, tint) {
   } else if (t === M.PLANK) {
     if (((face < 2 ? z : x) + y) % 3 === 0) { r *= .86; g *= .86; b *= .86; }
   } else if (t === M.LEAF && h > .8) { r = 74; g = 140; b = 58; }
+  else if (t === M.SANDSTONE) {
+    const band = ((y >> 1) + ((x * 7 + z * 3) >> 5)) % 3;
+    if (band === 1) { r = 190; g = 128; b = 80; } else if (band === 2) { r = 222; g = 172; b = 114; }
+  } else if (t === M.SNOW) { if (face !== 2) { r = 214; g = 224; b = 238; } }
+  else if (t === M.ICE) { if (h > .7) { r = 200; g = 230; b = 244; } }
+  else if (t === M.CASTLE) {
+    const row = y & 1, brick = ((x + z + row * 2) >> 1) & 1;
+    if (brick) { r *= .88; g *= .88; b *= .9; }
+    if (y % 2 === 0 && ((x + z) & 1)) { r *= .95; g *= .95; b *= .95; }
+  } else if (t === M.GLASS) { if ((y & 1) === 0) { r *= .82; g *= .86; b *= .9; } if (h > .85) { r = 170; g = 210; b = 226; } }
+  else if (t === M.BARREL) { if (face === 2 || face === 3) { r = 120; g = 30; b = 24; } else if ((y & 1) === 0) { r *= .78; g *= .78; b *= .78; } }
+  else if (t === M.CAR) { const c = CAR_COLS[(hash3(x >> 4, 7, z >> 4) * CAR_COLS.length) | 0]; r = c[0]; g = c[1]; b = c[2]; }
+  else if (t === M.ASPHALT) { if (h > .92) { r = 78; g = 80; b = 84; } }
+  else if (t === M.CACTUS) { if (((x + y + z) & 1) && face !== 2) { r = 58; g = 112; b = 52; } }
   const j = 1 + (h - .5) * 2 * m.jit;
   r *= j; g *= j; b *= j;
   if (tint) {
@@ -244,12 +275,15 @@ function buildChunk(ci) {
 }
 function rebuildDirty(budgetMs) {
   if (!dirtyCount) return;
+  // 이웃 청크가 서로 다른 프레임에 갱신되면 경계에 구멍이 한 프레임 보이므로,
+  // 적당한 양이면 한 번에 모두 갱신
+  const all = dirtyCount <= 48;
   const t0 = performance.now();
   for (let i = 0; i < chunkDirty.length; i++) {
     if (!chunkDirty[i]) continue;
     chunkDirty[i] = 0; dirtyCount--;
     buildChunk(i);
-    if (performance.now() - t0 > budgetMs) break;
+    if (!all && performance.now() - t0 > budgetMs) break;
   }
 }
 function rebuildAll() {
@@ -496,12 +530,25 @@ function fillBox(x0, y0, z0, x1, y1, z1, t) {
   for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++)
     if (x >= 0 && x < SX && y >= 0 && y < SY && z >= 0 && z < SZ) vox[vidx(x, y, z)] = t;
 }
-function genWorld(seed) {
+const MAPS = {
+  village: { name: '강변 마을', desc: '강과 다리, 벽돌 마을과 숲', water: 11.6 },
+  canyon:  { name: '사막 협곡', desc: '절벽 고지대와 터지는 연료 저장소', water: 7.6 },
+  snow:    { name: '설원 요새', desc: '얼어붙은 호수를 사이에 둔 두 성채', water: 11.6 },
+  city:    { name: '폐허 도시', desc: '무너뜨릴 수 있는 고층 빌딩 숲', water: -20 },
+};
+let mapId = 'village';
+function genWorld(seed, id) {
+  if (id) mapId = id;
+  WATER_Y = MAPS[mapId].water;
   const rng = mulberry32(seed);
   wrand = rng;
   vox.fill(0); vtint.fill(0); sandQueue.clear();
   for (const B of fallingBodies) { worldGroup.remove(B.mesh); B.mesh.geometry.dispose(); }
   fallingBodies.length = 0;
+  ({ village: genVillage, canyon: genCanyon, snow: genSnow, city: genCity })[mapId](rng);
+  rebuildAll();
+}
+function genVillage(rng) {
   const noise = makeNoise(rng), noise2 = makeNoise(rng);
   const p1 = rng() * 10, p2 = rng() * 10;
   riverCenter = z => SX / 2 + Math.sin(z * .026 + p1) * 13 + Math.sin(z * .071 + p2) * 4;
@@ -594,7 +641,17 @@ function genWorld(seed) {
     if (vox[vidx(x, y - 1, z)] !== M.GRASS) continue;
     buildTree(x, y, z, rng);
   }
-  rebuildAll();
+  // 집 옆 연료통 무더기
+  for (const sp of spots) if (rng() < .7) barrelPile(sp[0] + (sp[2] >> 1) + 2, sp[1] + ((rng() * sp[3]) | 0) - (sp[3] >> 1), 2 + ((rng() * 3) | 0), rng);
+}
+function barrelPile(cx, cz, n, rng) {
+  for (let k = 0; k < n; k++) {
+    const x = cx + ((rng() * 3) | 0) - 1, z = cz + ((rng() * 3) | 0) - 1;
+    if (x < 1 || x >= SX - 1 || z < 1 || z >= SZ - 1) continue;
+    const y = surfaceY(x, z);
+    if (y + 2 >= SY) continue;
+    vox[vidx(x, y, z)] = M.BARREL; vox[vidx(x, y + 1, z)] = M.BARREL;
+  }
 }
 function buildBridge(bz) {
   const rc = Math.round(riverCenter(bz));
@@ -619,13 +676,14 @@ function buildBridge(bz) {
     for (let y = s; y < deck - 1; y++) vox[vidx(x, y, z)] = M.DIRT;
   }
 }
-function buildHouse(cx, cz, w, d, rng) {
+function buildHouse(cx, cz, w, d, rng, opt) {
+  opt = opt || {};
   const x0 = cx - (w >> 1), z0 = cz - (d >> 1), x1 = x0 + w - 1, z1 = z0 + d - 1;
   let base = 0;
   for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) base = Math.max(base, surfaceY(x, z));
   const brick = rng() < .6;
-  const wallT = brick ? M.BRICK : M.CONCRETE;
-  const floors = rng() < .45 ? 2 : 1, fh = 5;
+  const wallT = opt.wall || (brick ? M.BRICK : M.CONCRETE);
+  const floors = opt.floors || (rng() < .45 ? 2 : 1), fh = 5;
   // 기초
   for (let z = z0 - 1; z <= z1 + 1; z++) for (let x = x0 - 1; x <= x1 + 1; x++) {
     const s = surfaceY(x, z);
@@ -648,7 +706,7 @@ function buildHouse(cx, cz, w, d, rng) {
     if (f < floors - 1) { vox[vidx(x0 + 1, yb + fh - 1, z0 + 1)] = 0; vox[vidx(x0 + 2, yb + fh - 1, z0 + 1)] = 0; }
   }
   const top = base + 1 + floors * fh - 1;
-  if (rng() < .5) {
+  if (opt.roof === 'gable' || (!opt.roof && rng() < .5)) {
     // 박공지붕
     const along = w >= d;
     const span = along ? d : w;
@@ -699,4 +757,364 @@ function buildTree(x, y, z, rng) {
     const i = vidx(X, Y, Z);
     if (!vox[i]) vox[i] = M.LEAF;
   }
+}
+
+// ───────────── 맵: 공통 도우미 ─────────────
+function setV(x, y, z, t) { if (x >= 0 && x < SX && y >= 0 && y < SY && z >= 0 && z < SZ) vox[vidx(x, y, z)] = t; }
+const smooth01 = (a, b, v) => { const t = Math.max(0, Math.min(1, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+function sandbagNests(rng, xa, xb) {
+  for (const side of [0, 1]) for (let k = 0; k < 4; k++) {
+    const x = side ? xb : xa, z = Math.round(30 + k * (SZ - 60) / 3 + (rng() - .5) * 10);
+    for (let dz = -6; dz <= 6; dz++) {
+      const xx = x + Math.round(Math.cos(dz / 6 * 1.2) * 3) * (side ? -1 : 1), zz = z + dz;
+      if (zz < 0 || zz >= SZ) continue;
+      for (let t = 0; t < 2; t++) {
+        const X = xx + t, b = surfaceY(X, zz);
+        for (let dy = 0; dy < 2; dy++) setV(X, b + dy, zz, M.SANDBAG);
+      }
+    }
+  }
+}
+function blob(cx, cy, cz, r, t, rng) {
+  for (let dy = -2; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++)
+    if (dx * dx + dz * dz + dy * dy * 1.6 < r * r && rng() > .1) setV(Math.round(cx + dx), cy + dy, Math.round(cz + dz), t);
+}
+
+// ───────────── 맵: 사막 협곡 ─────────────
+function genCanyon(rng) {
+  const noise = makeNoise(rng), n2 = makeNoise(rng);
+  const p1 = rng() * 10;
+  const cc = z => SX / 2 + Math.sin(z * .03 + p1) * 10;
+  riverCenter = cc;
+  const mesas = [];
+  for (let k = 0; k < 80 && mesas.length < 8; k++) {
+    const r = 8 + rng() * 11, x = 58 + rng() * (SX - 116), z = 14 + rng() * (SZ - 28);
+    if (Math.abs(x - cc(z)) < r + 8) continue;
+    if (mesas.some(m => Math.hypot(m.x - x, m.z - z) < m.r + r + 7)) continue;
+    mesas.push({ x, z, r, h: 27 + rng() * 10, ra: rng() * Math.PI * 2 });
+  }
+  for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) {
+    let h = 14 + noise(x * .025, z * .025, 3) * 4 + Math.sin(x * .17 + noise(x * .02, z * .05) * 6) * .7;
+    const edge = Math.min(x, z, SX - 1 - x, SZ - 1 - z);
+    if (edge < 20) h += Math.pow(1 - edge / 20, 1.6) * (16 + n2(x * .06, z * .06) * 14);
+    for (const m of mesas) {
+      const dx = x - m.x, dz = z - m.z, dist = Math.hypot(dx, dz);
+      if (dist > m.r * 1.4 + 26) continue;
+      const rr = m.r * (.82 + n2(x * .09 + m.x, z * .09) * .36);
+      let mh = dist < rr ? m.h : dist < rr + 3 ? m.h - (dist - rr) / 3 * (m.h - 15) : 0;
+      // 고지대로 올라가는 경사로
+      const along = dx * Math.cos(m.ra) + dz * Math.sin(m.ra), across = -dx * Math.sin(m.ra) + dz * Math.cos(m.ra);
+      if (along > 0 && Math.abs(across) < 2.6) mh = Math.max(mh, m.h - Math.max(0, along - rr * .9) / 1.5);
+      h = Math.max(h, mh);
+    }
+    const dr = Math.abs(x - cc(z));
+    if (dr < 13) h = h + (5.4 - h) * smooth01(13, 5, dr);
+    for (const b of BASES) {
+      const dx = x < b.x0 ? b.x0 - x : x > b.x1 ? x - b.x1 : 0;
+      if (dx < 12) h = h + (15 - h) * (1 - dx / 12) * .85;
+    }
+    heightMap[z * SX + x] = h;
+  }
+  for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) {
+    const h = Math.floor(heightMap[z * SX + x]);
+    const low = h <= WATER_Y + .5, high = h >= 21;
+    for (let y = 0; y <= h && y < SY; y++) {
+      let t;
+      if (y === 0) t = M.BEDROCK;
+      else if (y < h - 7) t = M.STONE;
+      else if (high) t = M.SANDSTONE;
+      else t = (y >= h - 1 || low) ? M.SAND : M.SANDSTONE;
+      vox[vidx(x, y, z)] = t;
+    }
+  }
+  // 돌다리 아치
+  {
+    const z0 = Math.round(SZ * .5 + (rng() - .5) * 50), ax = Math.round(cc(z0)), cy = 12, R = 13, r = 9.5;
+    for (let dx = -R; dx <= R; dx++) for (let dy = 0; dy <= R; dy++) {
+      const d2 = dx * dx + dy * dy;
+      if (d2 > R * R || d2 < r * r) continue;
+      for (let dz = 0; dz < 4; dz++) setV(ax + dx, cy + dy, z0 + dz, M.SANDSTONE);
+    }
+    for (const sx of [-1, 1]) for (let w = 9; w <= 13; w++) for (let dz = 0; dz < 4; dz++) {
+      const X = ax + sx * w;
+      for (let y = surfaceY(X, z0 + dz); y <= cy; y++) setV(X, y, z0 + dz, M.SANDSTONE);
+    }
+  }
+  // 연료 저장소: 강철 탱크 속은 연료통 → 연쇄 대폭발
+  for (const side of [0, 1]) {
+    let x = side ? SX - 76 : 76, z = 40;
+    for (let k = 0; k < 30; k++) { z = 26 + rng() * (SZ - 52); if (surfaceY(x, z) <= 18) break; }
+    for (const [ox, oz] of [[0, 0], [7, 2], [2, 8]]) {
+      const tx = Math.round(x + (side ? -ox : ox)), tz = Math.round(z + oz), b = surfaceY(tx, tz);
+      for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
+        const d = Math.hypot(dx, dz);
+        if (d > 3.2) continue;
+        for (let y = b - 1; y < b + 6; y++) setV(tx + dx, y, tz + dz, d > 2.2 || y === b + 5 ? M.METAL : M.BARREL);
+      }
+    }
+    for (let k = 0; k < 5; k++) barrelPile(Math.round(x + (rng() - .5) * 18), Math.round(z + (rng() - .5) * 18), 3, rng);
+  }
+  // 사암 마을
+  const spots = [];
+  for (let k = 0; k < 80 && spots.length < 6; k++) {
+    const side = k % 2 ? 1 : -1, zz = 20 + rng() * (SZ - 40), xx = Math.round(cc(zz) + side * (18 + rng() * 22));
+    const w = 9 + ((rng() * 3) | 0) * 2, d = 9 + ((rng() * 2) | 0) * 2, z = Math.round(zz);
+    if (surfaceY(xx, z) > 18 || spots.some(s => Math.abs(s[0] - xx) < 16 && Math.abs(s[1] - z) < 16)) continue;
+    spots.push([xx, z]);
+    buildHouse(xx, z, w, d, rng, { wall: M.SANDSTONE, roof: 'flat', floors: rng() < .4 ? 2 : 1 });
+  }
+  // 선인장, 바위
+  for (let k = 0; k < 70; k++) {
+    const x = 4 + ((rng() * (SX - 8)) | 0), z = 4 + ((rng() * (SZ - 8)) | 0), y = surfaceY(x, z);
+    if (getV(x, y - 1, z) !== M.SAND || y <= WATER_Y + 1) continue;
+    const h = 3 + ((rng() * 3) | 0);
+    for (let k2 = 0; k2 < h; k2++) setV(x, y + k2, z, M.CACTUS);
+    if (rng() < .7) { const o = rng() < .5 ? 1 : -1, ax = rng() < .5; setV(x + (ax ? o : 0), y + 2, z + (ax ? 0 : o), M.CACTUS); setV(x + (ax ? o : 0), y + 3, z + (ax ? 0 : o), M.CACTUS); }
+  }
+  for (let k = 0; k < 14; k++) { const x = rng() * SX, z = rng() * SZ; blob(x, surfaceY(x, z), z, 1.5 + rng() * 2.5, M.SANDSTONE, rng); }
+  sandbagNests(rng, BASES[0].x1 + 3, BASES[1].x0 - 3);
+}
+
+// ───────────── 맵: 설원 요새 ─────────────
+const FORTS = [{ x0: 10, x1: 50 }, { x0: SX - 51, x1: SX - 11 }];
+function genSnow(rng) {
+  const noise = makeNoise(rng), n2 = makeNoise(rng);
+  const lx = SX / 2 + (rng() - .5) * 10, lz = SZ / 2 + (rng() - .5) * 40, lr = 26 + rng() * 6;
+  riverCenter = () => lx;
+  const fz0 = SZ / 2 - 28, fz1 = SZ / 2 + 28;
+  for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) {
+    let h = 17 + noise(x * .02, z * .02, 4) * 9;
+    const edge = Math.min(x, z, SX - 1 - x, SZ - 1 - z);
+    if (edge < 24) h += Math.pow(1 - edge / 24, 1.7) * (16 + n2(x * .07, z * .07) * 20);
+    const d = Math.hypot(x - lx, (z - lz) * .85) / (lr * (.85 + n2(x * .05, z * .05) * .3));
+    if (d < 1.35) h = h + (8 - h) * smooth01(1.35, .85, d);
+    for (const f of FORTS) {
+      const dx = x < f.x0 ? f.x0 - x : x > f.x1 ? x - f.x1 : 0, dz = z < fz0 ? fz0 - z : z > fz1 ? z - fz1 : 0;
+      const dd = Math.max(dx, dz);
+      if (dd < 12) h = h + (19 - h) * (1 - dd / 12);
+    }
+    heightMap[z * SX + x] = h;
+  }
+  for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) {
+    const h = Math.floor(heightMap[z * SX + x]);
+    const lake = h < WATER_Y;
+    for (let y = 0; y <= h && y < SY; y++) {
+      let t;
+      if (y === 0) t = M.BEDROCK;
+      else if (y < h - 4) t = M.STONE;
+      else if (y < h) t = lake ? M.STONE : M.DIRT;
+      else t = lake ? M.DIRT : M.SNOW;
+      vox[vidx(x, y, z)] = t;
+    }
+    if (lake) vox[vidx(x, Math.floor(WATER_Y), z)] = M.ICE;
+    heightMap[z * SX + x] = Math.max(heightMap[z * SX + x], WATER_Y + .4);
+  }
+  // 성채 두 개
+  for (let side = 0; side < 2; side++) buildFort(FORTS[side].x0, FORTS[side].x1, Math.round(fz0), Math.round(fz1), side, rng);
+  // 눈 덮인 침엽수
+  for (let k = 0; k < 170; k++) {
+    const x = 4 + ((rng() * (SX - 8)) | 0), z = 4 + ((rng() * (SZ - 8)) | 0);
+    if (noise(x * .03 + 5, z * .03) < .42 && rng() < .75) continue;
+    if (FORTS.some(f => x > f.x0 - 6 && x < f.x1 + 6 && z > fz0 - 6 && z < fz1 + 6)) continue;
+    const y = surfaceY(x, z);
+    if (getV(x, y - 1, z) !== M.SNOW) continue;
+    buildPine(x, y, z, rng);
+  }
+  // 눈사람
+  for (let k = 0; k < 6; k++) {
+    const x = 60 + rng() * (SX - 120), z = 10 + rng() * (SZ - 20), y = surfaceY(x, z);
+    if (y <= WATER_Y + 1) continue;
+    for (const [r, oy] of [[1.7, 1], [1.25, 3.4], [.9, 5.2]])
+      for (let dy = -2; dy <= 2; dy++) for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++)
+        if (dx * dx + dy * dy + dz * dz <= r * r + .3) setV(Math.round(x) + dx, y + Math.round(oy) + dy, Math.round(z) + dz, M.SNOW);
+    setV(Math.round(x) - 1, y + 6, Math.round(z) + 1, M.BEDROCK); setV(Math.round(x) + 1, y + 6, Math.round(z) + 1, M.BEDROCK);
+    setV(Math.round(x), y + 5, Math.round(z) + 1, M.BARREL);
+  }
+}
+function buildPine(x, y, z, rng) {
+  const th = 2 + ((rng() * 2) | 0), layers = 3 + ((rng() * 2) | 0);
+  for (let k = 0; k < th + layers * 2; k++) setV(x, y + k, z, M.WOOD);
+  for (let L = 0; L < layers; L++) {
+    const r = layers - L + .6, yy = y + th + L * 2;
+    for (let dy = 0; dy < 2; dy++) for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
+      const rr = r - dy * .7;
+      if (dx * dx + dz * dz > rr * rr || (dx === 0 && dz === 0)) continue;
+      setV(x + dx, yy + dy, z + dz, dy === 1 && rng() < .7 ? M.SNOW : M.PINE);
+    }
+  }
+  setV(x, y + th + layers * 2, z, M.PINE); setV(x, y + th + layers * 2 + 1, z, M.SNOW);
+}
+function buildFort(x0, x1, z0, z1, side, rng) {
+  const G = 19, H = 9;
+  // 바닥 고르기
+  for (let z = z0 - 2; z <= z1 + 2; z++) for (let x = x0 - 2; x <= x1 + 2; x++) {
+    for (let y = 1; y < G; y++) if (!getV(x, y, z)) setV(x, y, z, y === G - 1 ? M.SNOW : M.DIRT);
+    for (let y = G; y < SY; y++) setV(x, y, z, 0);
+    setV(x, G - 1, z, M.SNOW);
+  }
+  const front = side === 0 ? x1 : x0, zm = (z0 + z1) >> 1;
+  for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+    const ex = Math.min(x - x0, x1 - x), ez = Math.min(z - z0, z1 - z);
+    if (ex > 1 && ez > 1) continue;
+    for (let y = G; y < G + H; y++) setV(x, y, z, M.CASTLE);
+    const outer = ex === 0 || ez === 0;
+    if (outer && (x + z) % 2 === 0) setV(x, G + H, z, M.CASTLE);
+  }
+  // 성문
+  for (let z = zm - 3; z <= zm + 3; z++) for (let y = G; y < G + 6; y++) for (let k = 0; k < 2; k++) setV(front + (side === 0 ? -k : k), y, z, 0);
+  // 모서리 탑
+  for (const [cx, cz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) {
+    const tx0 = cx === x0 ? x0 - 2 : x1 - 4, tz0 = cz === z0 ? z0 - 2 : z1 - 4;
+    for (let z = tz0; z < tz0 + 7; z++) for (let x = tx0; x < tx0 + 7; x++) {
+      const edge = x === tx0 || x === tx0 + 6 || z === tz0 || z === tz0 + 6;
+      for (let y = G; y < G + 14; y++) if (edge || y === G + 9) setV(x, y, z, edge && y >= G + 2 && y <= G + 3 && ((x + z) & 3) === 0 ? 0 : M.CASTLE);
+      if (edge && (x + z) % 2 === 0) setV(x, G + 14, z, M.CASTLE);
+    }
+  }
+  // 앞 성벽 안쪽 통로와 계단
+  const inX = side === 0 ? -1 : 1;
+  for (let z = z0 + 2; z <= z1 - 2; z++) {
+    if (Math.abs(z - zm) <= 4) continue;
+    for (let k = 2; k < 4; k++) setV(front + inX * k, G + 5, z, M.PLANK);
+  }
+  for (const zs of [z0 + 2, z1 - 2]) {
+    const dir = zs === z0 + 2 ? 1 : -1;
+    for (let s = 0; s < 5; s++) for (let k = 4; k < 6; k++) for (let y = G; y <= G + s; y++) setV(front + inX * k, y, zs + dir * (6 - s), M.CASTLE);
+  }
+  // 성 안 본관과 깃발
+  const kx = side === 0 ? x0 + 9 : x1 - 9;
+  buildHouse(kx, zm, 11, 13, rng, { wall: M.CASTLE, roof: 'flat', floors: 2 });
+  const fx = side === 0 ? x0 + 18 : x1 - 18, base = surfaceY(fx, zm);
+  for (let y = base; y < base + 12; y++) setV(fx, y, zm, M.WOOD);
+  for (let y = base + 8; y < base + 11; y++) for (let k = 1; k <= 4; k++) setV(fx, y, zm + k, side === 0 ? M.FLAGR : M.FLAGB);
+}
+
+// ───────────── 맵: 폐허 도시 ─────────────
+function genCity(rng) {
+  const G = 14;
+  riverCenter = () => -100;
+  const RX = [12, 50, 88, 126, 164], RZ = [6, 44, 82, 120, 158], RW = 9;
+  const roadX = x => RX.some(r => x >= r && x < r + RW), roadZ = z => RZ.some(r => z >= r && z < r + RW);
+  for (let z = 0; z < SZ; z++) for (let x = 0; x < SX; x++) {
+    heightMap[z * SX + x] = G;
+    for (let y = 0; y < G; y++) vox[vidx(x, y, z)] = y === 0 ? M.BEDROCK : y < 9 ? M.STONE : M.DIRT;
+    let t = M.PAVE;
+    const rx = roadX(x), rz = roadZ(z);
+    if (rx || rz) {
+      t = M.ASPHALT;
+      if (rx && !rz && RX.some(r => x === r + 4) && z % 6 < 3) t = M.ROADLINE;
+      if (rz && !rx && RZ.some(r => z === r + 4) && x % 6 < 3) t = M.ROADLINE;
+    }
+    vox[vidx(x, G - 1, z)] = t;
+  }
+  // 블록
+  const bx = [[0, RX[0] - 1]], bz = [[0, RZ[0] - 1]];
+  for (let i = 0; i < RX.length; i++) bx.push([RX[i] + RW, i + 1 < RX.length ? RX[i + 1] - 1 : SX - 1]);
+  for (let i = 0; i < RZ.length; i++) bz.push([RZ[i] + RW, i + 1 < RZ.length ? RZ[i + 1] - 1 : SZ - 1]);
+  for (const [x0, x1] of bx) for (const [z0, z1] of bz) {
+    const w = x1 - x0 + 1, d = z1 - z0 + 1, cx = (x0 + x1) >> 1, cz = (z0 + z1) >> 1;
+    if (w < 12 || d < 12) {
+      // 가장자리 띠: 화단과 나무
+      for (let z = z0 + 1; z < z1; z++) for (let x = x0 + 1; x < x1; x++) setV(x, G - 1, z, M.GRASS);
+      if (rng() < .5) buildTree(cx, G, cz, rng);
+      continue;
+    }
+    const base = cx < 54 || cx > SX - 54;
+    const r = rng();
+    if (base) {
+      // 기지 광장: 모래주머니, 상자, 연료통
+      for (let k = 0; k < 3; k++) {
+        const zz = z0 + 4 + ((rng() * (d - 8)) | 0), xx = cx < SX / 2 ? x1 - 3 : x0 + 2;
+        for (let dz = -4; dz <= 4; dz++) for (let t = 0; t < 2; t++) for (let y = G; y < G + 2; y++) setV(xx + t, y, zz + dz, M.SANDBAG);
+      }
+      for (let k = 0; k < 4; k++) { const xx = x0 + 3 + ((rng() * (w - 6)) | 0), zz = z0 + 3 + ((rng() * (d - 6)) | 0); fillBox(xx, G, zz, xx + 1, G + 1, zz + 1, M.PLANK); }
+      barrelPile(cx, cz, 3, rng);
+    } else if (r < .45) {
+      if (rng() < .5) buildHighrise(cx, cz, Math.min(w - 6, 16), Math.min(d - 6, 16), 4 + ((rng() * 5) | 0), rng, false);
+      else {
+        buildHighrise(x0 + 8, z0 + 8, 11, 11, 3 + ((rng() * 4) | 0), rng, false);
+        buildHighrise(x1 - 7, z1 - 7, 10, 10, 3 + ((rng() * 3) | 0), rng, rng() < .4);
+      }
+    } else if (r < .65) {
+      buildHouse(cx, cz, Math.min(w - 6, 15), Math.min(d - 6, 13), rng, { wall: M.BRICK, roof: 'flat', floors: 3 + ((rng() * 2) | 0) });
+    } else if (r < .8) {
+      for (let z = z0 + 1; z < z1; z++) for (let x = x0 + 1; x < x1; x++) setV(x, G - 1, z, M.GRASS);
+      for (let k = 0; k < 5; k++) buildTree(x0 + 3 + ((rng() * (w - 6)) | 0), G, z0 + 3 + ((rng() * (d - 6)) | 0), rng);
+    } else buildHighrise(cx, cz, Math.min(w - 6, 15), Math.min(d - 6, 15), 3 + ((rng() * 4) | 0), rng, true);
+    // 가로등
+    for (const [lx, lz] of [[x0, z0], [x1, z0], [x0, z1], [x1, z1]]) {
+      if (getV(lx, G, lz)) continue;
+      for (let y = G; y < G + 6; y++) setV(lx, y, lz, M.METAL);
+      setV(lx, G + 6, lz, M.GLASS);
+    }
+  }
+  // 자동차 (속에 연료통이 있어 폭발함)
+  let cars = 0;
+  for (let k = 0; k < 200 && cars < 24; k++) {
+    const alongZ = rng() < .5;
+    const road = alongZ ? RX[(rng() * RX.length) | 0] : RZ[(rng() * RZ.length) | 0];
+    const lane = road + (rng() < .5 ? 1 : 5);
+    const pos = 4 + ((rng() * (SX - 14)) | 0);
+    const x = alongZ ? lane : pos, z = alongZ ? pos : lane;
+    const x1 = alongZ ? x + 2 : x + 5, z1 = alongZ ? z + 5 : z + 2;
+    if ((x >> 4) !== (x1 >> 4) || (z >> 4) !== (z1 >> 4)) continue;
+    if (alongZ ? roadZ(z) || roadZ(z1) : roadX(x) || roadX(x1)) continue;
+    let clear = true;
+    for (let zz = z - 1; zz <= z1 + 1 && clear; zz++) for (let xx = x - 1; xx <= x1 + 1; xx++) if (getV(xx, G, zz)) { clear = false; break; }
+    if (!clear) continue;
+    buildCar(x, z, alongZ);
+    cars++;
+  }
+  // 도로 바리케이드
+  for (let k = 0; k < 4; k++) {
+    const r = RZ[(rng() * RZ.length) | 0], x = Math.round(SX / 2 + (rng() - .5) * 60);
+    for (let z = r + 1; z < r + RW - 1; z++) for (let y = G; y < G + 2; y++) { setV(x, y, z, M.SANDBAG); setV(x + 1, y, z, M.SANDBAG); }
+  }
+}
+function buildCar(x, z, alongZ) {
+  const G = surfaceY(x, z);
+  for (let l = 0; l < 6; l++) for (let w = 0; w < 3; w++) {
+    const X = alongZ ? x + w : x + l, Z = alongZ ? z + l : z + w;
+    const wheel = (l === 1 || l === 4) && w !== 1;
+    setV(X, G, Z, wheel ? M.BEDROCK : (l === 2 || l === 3) && w === 1 ? M.BARREL : M.CAR);
+    if (l >= 1 && l <= 4) setV(X, G + 1, Z, (l === 1 || l === 4 || w !== 1) ? M.GLASS : M.CAR);
+  }
+}
+function buildHighrise(cx, cz, w, d, floors, rng, ruin) {
+  w = Math.max(7, w); d = Math.max(7, d);
+  const x0 = cx - (w >> 1), z0 = cz - (d >> 1), x1 = x0 + w - 1, z1 = z0 + d - 1;
+  const base = surfaceY(cx, cz), fh = 5;
+  floors = Math.min(floors, Math.floor((SY - 6 - base) / fh));
+  const conc = rng() < .5 ? M.CONCRETE : M.PAVE;
+  for (let f = 0; f < floors; f++) {
+    const yb = base + f * fh;
+    fillBox(x0, yb, z0, x1, yb, z1, conc);
+    for (let y = yb + 1; y < yb + fh; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+      const edgeX = x === x0 || x === x1, edgeZ = z === z0 || z === z1;
+      if (!edgeX && !edgeZ) continue;
+      const along = edgeX ? z - z0 : x - x0, corner = edgeX && edgeZ;
+      let t = (corner || along % 4 === 0 || y === yb + fh - 1) ? conc : M.GLASS;
+      if (f === 0 && !corner && y <= yb + 3 && Math.abs(along - ((edgeX ? d : w) >> 1)) <= 1) t = 0;
+      setV(x, y, z, t);
+    }
+  }
+  const top = base + floors * fh;
+  fillBox(x0, top, z0, x1, top, z1, conc);
+  for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (x === x0 || x === x1 || z === z0 || z === z1) setV(x, top + 1, z, conc);
+  if (!ruin) {
+    fillBox(cx - 1, top + 1, cz - 1, cx + 1, top + 3, cz + 1, M.METAL);
+    for (let y = top + 4; y < Math.min(SY, top + 9); y++) setV(x1 - 1, y, z1 - 1, M.METAL);
+    return;
+  }
+  // 폐허: 위쪽 모서리가 뜯겨 나간 건물과 잔해
+  for (let k = 0; k < 3 + ((rng() * 4) | 0); k++) {
+    const sx = rng() < .5 ? x0 : x1, sz = z0 + rng() * d, sy = base + fh * (1 + rng() * (floors - 1)) + 2, r = 2.5 + rng() * 3;
+    for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dy * dy + dz * dz > r * r) continue;
+      const X = Math.round(sx + dx), Y = Math.round(sy + dy), Z = Math.round(sz + dz);
+      if (Y > base + 1) setV(X, Y, Z, 0);
+      else if (getV(X, Y, Z) && Y >= base) vtint[vidx(X, Y, Z)] = 90;
+    }
+  }
+  for (let k = 0; k < 4; k++) blob(x0 - 2 + rng() * (w + 4), base, z0 - 2 + rng() * (d + 4), 1.5 + rng() * 1.5, conc, rng);
 }

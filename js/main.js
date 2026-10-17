@@ -2,7 +2,7 @@
 // ─────────────────────────────────────────────────────────────
 //  메인: 렌더러/씬 구성, 게임 흐름(배치 → 전투 → 결과), 루프
 // ─────────────────────────────────────────────────────────────
-let sun, hemi, waterMesh, waterNormal, skyMesh;
+let sun, hemi, waterMesh, waterNormal, skyMesh, baseMesh;
 let seed = (Math.random() * 1e9) | 0;
 let snapshot = null;
 
@@ -53,6 +53,7 @@ function initRenderer() {
   base.rotation.x = -Math.PI / 2; base.position.set(SX / 2, -.05, SZ / 2);
   base.receiveShadow = true;
   scene.add(base);
+  baseMesh = base;
 
   // 물
   waterNormal = makeWaterNormal();
@@ -109,6 +110,7 @@ function onResize() {
 
 // ───────────── 게임 흐름 ─────────────
 function clearBattleState() {
+  mines.length = 0;
   projs = []; pendingBooms.length = 0; strikes.length = 0; planes.length = 0; emitters.length = 0; groundFires.length = 0;
   burning.clear();
   if (bhole) { bhole = null; bholeMesh.visible = bholeRing.visible = false; }
@@ -120,17 +122,54 @@ function clearUnits() {
   units = []; stopFollow(true);
   stats.kills[0] = stats.kills[1] = stats.lost[0] = stats.lost[1] = 0;
 }
+// ───────────── 맵 분위기 ─────────────
+const THEMES = {
+  village: { top: 0x3f74b8, mid: 0x9cbad6, bot: 0xc7d3dc, fog: [230, 640], sun: 0xffeedd, sunI: 1.9, sunPos: [-110, 170, -70],
+    hemi: [0xd4e4ff, 0x6a5a44, .72], base: 0x5d6a5a, water: 0x1f5f7c, exp: 1 },
+  canyon: { top: 0x3a6fb5, mid: 0xd9c6a2, bot: 0xe6cfa6, fog: [210, 600], sun: 0xffe0b0, sunI: 2.1, sunPos: [-130, 120, -40],
+    hemi: [0xfff0d6, 0x8a6440, .7], base: 0xa07a52, water: 0x2f7f86, exp: 1 },
+  snow: { top: 0x7d93ad, mid: 0xc4cfdb, bot: 0xdde4ea, fog: [150, 480], sun: 0xeef3ff, sunI: 1.35, sunPos: [-90, 160, -110],
+    hemi: [0xe8f0ff, 0x7a8696, 1.0], base: 0xc4ccd4, water: 0x22536a, exp: .95 },
+  city: { top: 0x24345f, mid: 0xd98f66, bot: 0xeeb58c, fog: [200, 560], sun: 0xffb27a, sunI: 1.8, sunPos: [-150, 85, 40],
+    hemi: [0x9fb2dc, 0x4a3a30, .62], base: 0x3a3a3e, water: 0x1f5f7c, exp: 1.05 },
+};
+function applyTheme(id) {
+  const t = THEMES[id];
+  const u = skyMesh.material.uniforms;
+  u.top.value.setHex(t.top); u.mid.value.setHex(t.mid); u.bot.value.setHex(t.bot);
+  scene.fog.color.setHex(t.bot); scene.fog.near = t.fog[0]; scene.fog.far = t.fog[1];
+  sun.color.setHex(t.sun); sun.intensity = t.sunI;
+  sun.position.set(SX / 2 + t.sunPos[0], t.sunPos[1], SZ / 2 + t.sunPos[2]);
+  u.sunDir.value.copy(sun.position).sub(sun.target.position).normalize();
+  hemi.color.setHex(t.hemi[0]); hemi.groundColor.setHex(t.hemi[1]); hemi.intensity = t.hemi[2];
+  baseMesh.material.color.setHex(t.base);
+  waterMesh.material.color.setHex(t.water);
+  waterMesh.position.y = WATER_Y; waterMesh.visible = WATER_Y > 0;
+  renderer.toneMappingExposure = t.exp;
+  $('mapName').textContent = MAPS[id].name;
+}
+let weatherT = 0;
+function updateWeather(dt) {
+  if (mapId !== 'snow') return;
+  weatherT += dt * 70;
+  const c = cam.c;
+  while (weatherT > 1) {
+    weatherT--;
+    const r = Math.min(110, c.dist * 1.1 + 20);
+    smoke.spawn(c.tx + R(r * 2), c.ty + 25 + Math.random() * 25, c.tz + R(r * 2), R(1.5) + 1, -5 - Math.random() * 3, R(1.5),
+      8, .4, .4, [1, 1, 1, .9], [1, 1, 1, .7], 0, 0);
+  }
+}
 function placeDefaultArmies() {
-  const comp = [['rifle', 12], ['mg', 3], ['sniper', 2], ['rocket', 3], ['grenadier', 3], ['medic', 2]];
+  const comp = [['dog', 3], ['shotgun', 3], ['flame', 2], ['rifle', 8], ['mg', 2], ['sapper', 2], ['grenadier', 2], ['rocket', 3],
+    ['engineer', 2], ['medic', 2], ['mortar', 2], ['sniper', 2]];
   for (const team of [0, 1]) {
     const b = BASES[team], yaw = team === 0 ? Math.PI / 2 : -Math.PI / 2;
     const front = team === 0 ? b.x1 - 2 : b.x0 + 2, dir = team === 0 ? -1 : 1;
     let i = 0;
     const list = [];
     for (const [t, n] of comp) for (let k = 0; k < n; k++) list.push(t);
-    // 앞줄: 소총/기관총, 뒷줄: 지원 병과
-    const order = ['rifle', 'mg', 'grenadier', 'rocket', 'medic', 'sniper'];
-    list.sort((a, c) => order.indexOf(a) - order.indexOf(c));
+    // 앞줄부터 돌격 병과, 뒤로 갈수록 지원 병과 (comp 순서 그대로)
     const perRow = 9;
     for (const t of list) {
       const row = Math.floor(i / perRow), col = i % perRow;
@@ -146,6 +185,7 @@ function placeDefaultArmies() {
       for (let k = 0; k < 30 && !naturalTop(front + dir * 14, z); k++) z += (k % 2 ? -1 : 1) * (k + 1) * 1.5;
       spawnUnit('tank', team, front + dir * 14, z, yaw);
     }
+    spawnUnit('heli', team, front + dir * 20, SZ / 2 + (team ? 6 : -6), yaw);
   }
 }
 function takeSnapshot() {
@@ -186,12 +226,14 @@ function resetToSetup() {
   refreshHUD();
   toast('배치 단계로 돌아왔습니다. 병력을 바꾸고 다시 전투를 시작하세요');
 }
-function newMap() {
+function newMap(id) {
   clearBattleState(); clearUnits();
   seed = (Math.random() * 1e9) | 0;
+  if (id === 'random') { const ids = Object.keys(MAPS).filter(k => k !== mapId); id = ids[(Math.random() * ids.length) | 0]; }
   showLoading(true);
   setTimeout(() => {
-    genWorld(seed);
+    genWorld(seed, id || mapId);
+    applyTheme(mapId);
     rebuildCamHeight();
     camReset(true);
     placeDefaultArmies();
@@ -200,6 +242,30 @@ function newMap() {
   }, 30);
 }
 function showLoading(on) { $('loading').hidden = !on; }
+// ───────────── 지도 선택 ─────────────
+const MAP_SWATCH = {
+  village: 'linear-gradient(135deg,#5e8f45 0%,#5e8f45 45%,#2f6f8f 46%,#2f6f8f 58%,#9c4a36 59%)',
+  canyon: 'linear-gradient(160deg,#e6cfa6 0%,#d29a5e 40%,#b9774a 70%,#2f7f86 71%,#2f7f86 78%,#d8b07a 79%)',
+  snow: 'linear-gradient(150deg,#f2f5f8 0%,#dfe7ee 45%,#9fc6da 46%,#9fc6da 62%,#8a8884 63%)',
+  city: 'linear-gradient(160deg,#24345f 0%,#d98f66 45%,#3e4044 46%,#6b6d72 70%,#a8a59c 71%)',
+};
+function buildMapPicker() {
+  const box = $('mapList');
+  box.innerHTML = '';
+  for (const id of Object.keys(MAPS)) {
+    const b = document.createElement('button');
+    b.className = 'mapitem' + (id === mapId ? ' on' : ''); b.id = 'map-' + id;
+    b.innerHTML = `<span class="msw" style="background:${MAP_SWATCH[id]}"></span><span class="mn">${MAPS[id].name}</span><span class="md">${MAPS[id].desc}</span>`;
+    b.onclick = () => { $('mapPick').hidden = true; newMap(id); };
+    box.appendChild(b);
+  }
+  $('mapRandom').onclick = () => { $('mapPick').hidden = true; newMap('random'); };
+  $('mapClose').onclick = () => { $('mapPick').hidden = true; };
+}
+function openMapPicker() {
+  for (const id of Object.keys(MAPS)) $('map-' + id).classList.toggle('on', id === mapId);
+  $('mapPick').hidden = false;
+}
 let reinforceT = 0;
 function reinforce(dt) {
   if (!ui.auto || phase !== 'battle') return;
@@ -208,13 +274,15 @@ function reinforce(dt) {
   reinforceT = 4;
   const a = [0, 0];
   for (const u of units) if (!u.dead) a[u.team]++;
-  const pool = ['rifle', 'rifle', 'rifle', 'mg', 'rocket', 'grenadier', 'sniper', 'medic'];
+  const pool = ['rifle', 'rifle', 'rifle', 'mg', 'rocket', 'grenadier', 'sniper', 'medic', 'shotgun', 'flame', 'dog', 'dog', 'sapper', 'mortar', 'engineer'];
   for (const team of [0, 1]) {
     if (a[team] >= 45) continue;
     const b = BASES[team], z = 20 + Math.random() * (SZ - 40);
     const x = team === 0 ? b.x0 + 2 : b.x1 - 2;
     if (!naturalTop(x, z)) continue;
-    if (Math.random() < .12) spawnUnit('tank', team, x, z);
+    const q = Math.random();
+    if (q < .1) spawnUnit('tank', team, x, z);
+    else if (q < .16) spawnUnit('heli', team, x, z);
     else for (let k = 0; k < 3; k++) spawnUnit(pool[(Math.random() * pool.length) | 0], team, x + R(3), z + R(4));
   }
 }
@@ -229,6 +297,7 @@ function simulate(dt) {
   processCollapse();
   updateFalling(dt);
   if (frameN % 2 === 0) updateSand();
+  updateWeather(dt);
   updateFX(dt);
   reinforce(dt);
   if (phase === 'battle') battleTime += dt;
@@ -248,14 +317,14 @@ function loop(now) {
     // 일시정지 중에도 붕괴 메시 갱신은 계속
     processCollapse();
   }
-  rebuildDirty(7);
+  rebuildDirty(10);
   updateCamera(dt);
   updatePreview();
   updateVictory(dt);
   updateHUD(dt);
   // 그리기
   boxN = 0;
-  drawUnits(); drawProjectiles(); drawPlanes();
+  drawUnits(); drawProjectiles(); drawPlanes(); drawMines();
   boxMesh.count = boxN;
   boxMesh.instanceMatrix.needsUpdate = true;
   if (boxMesh.instanceColor) boxMesh.instanceColor.needsUpdate = true;
@@ -281,9 +350,11 @@ function boot() {
   const mobile = matchMedia('(max-width: 720px)').matches || /Android|iPhone|iPad/i.test(navigator.userAgent);
   setGfx(mobile ? 'low' : 'high');
   setDrawer(!mobile);
-  genWorld(seed);
+  genWorld(seed, 'village');
+  applyTheme(mapId);
   rebuildCamHeight();
   camReset(true);
+  buildMapPicker();
   placeDefaultArmies();
   refreshHUD();
   showLoading(false);
