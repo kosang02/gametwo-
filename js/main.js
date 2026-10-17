@@ -49,7 +49,7 @@ function initRenderer() {
   scene.add(skyMesh);
 
   // 바깥 바닥(디오라마 받침대)
-  const base = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshLambertMaterial({ color: 0x3a4232 }));
+  const base = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshLambertMaterial({ color: 0x5d6a5a }));
   base.rotation.x = -Math.PI / 2; base.position.set(SX / 2, -.05, SZ / 2);
   base.receiveShadow = true;
   scene.add(base);
@@ -160,6 +160,12 @@ function startBattle() {
   stats.kills[0] = stats.kills[1] = stats.lost[0] = stats.lost[1] = 0;
   phase = 'battle'; battleTime = 0;
   ui.paused = false;
+  // 멀리서 보고 있었다면 전선 쪽으로 카메라를 당김
+  if (!followUnit && cam.dist > 130) {
+    let sx = 0, sz = 0, n = 0;
+    for (const u of units) if (!u.dead) { sx += u.x; sz += u.z; n++; }
+    cam.tx = sx / n; cam.tz = sz / n; cam.dist = 115; cam.pitch = Math.min(cam.pitch, .6);
+  }
   sfxUI('go');
   toast(!a[0] || !a[1] ? '한쪽 병력만 있습니다. 반대 팀도 배치해 보세요' : '전투 개시!');
   refreshHUD();
@@ -283,5 +289,7 @@ function boot() {
   requestAnimationFrame(t => { last = t; loop(t); });
 }
 window.addEventListener('load', boot);
+window.addEventListener('pointerdown', () => initAudio(), { capture: true });
+window.addEventListener('keydown', () => initAudio(), { capture: true });
 window.__pf = { get units() { return units; }, simulate, explode, startBattle, useWeapon, cam, ui, get phase() { return phase; }, stats,
   get dN() { return dN; }, get fallingBodies() { return fallingBodies; }, setTab, setDrawer, resetToSetup };

@@ -231,9 +231,8 @@ function updateUnitAI(u, dt) {
       u.stuckT = 0;
       const breach = tank || u.type === 'rocket' || u.type === 'grenadier';
       if (breach && u.cd <= 0) {
-        const bx = u.x + Math.sin(u.moveYaw) * 4, bz = u.z + Math.cos(u.moveYaw) * 4;
         u.aimYaw = u.moveYaw; u.turret = u.moveYaw;
-        fireWeapon(u, bx, u.y + 1.2, bz, true);
+        breachObstacle(u);
       } else {
         u.detourYaw = u.moveYaw + (Math.random() < .5 ? 1 : -1) * (1.1 + Math.random() * .8);
         u.detourT = 1 + Math.random();
@@ -328,8 +327,9 @@ function moveH(u, axis, d) {
   const nx = axis === 0 ? u.x + d : u.x, nz = axis === 1 ? u.z + d : u.z;
   if (!boxHits(nx, u.y, nz, u.hw, u.h)) { u.x = nx; u.z = nz; return; }
   // 한 칸 올라가기 (걷는 중)
-  if ((u.grounded || u.inWater) && !u.dead && u.stun <= 0 && !boxHits(nx, u.y + 1, nz, u.hw, u.h)) {
-    u.x = nx; u.z = nz; u.y += 1; u.ryo -= 1; return;
+  if ((u.grounded || u.inWater) && !u.dead && u.stun <= 0) {
+    const maxUp = u.type === 'tank' ? 2 : 1;
+    for (let up = 1; up <= maxUp; up++) if (!boxHits(nx, u.y + up, nz, u.hw, u.h)) { u.x = nx; u.z = nz; u.y += up; u.ryo -= up; return; }
   }
   // 전차는 나무/잎을 밀어 부숨
   if (u.type === 'tank' && !u.dead) {
@@ -654,4 +654,24 @@ function navYaw(u) {
   let tx = cx + bx + .5, tz = cz + bz + .5;
   if (nx2 >= 0 && nx2 < SX && nz2 >= 0 && nz2 < SZ && F[nz2 * SX + nx2] < best) { tx = nx2 + .5; tz = nz2 + .5; }
   return Math.atan2(tx - u.x, tz - u.z);
+}
+
+// 앞을 막는 지형을 근접 사격으로 폭파
+function breachObstacle(u) {
+  const tank = u.type === 'tank';
+  const dx = Math.sin(u.moveYaw), dz = Math.cos(u.moveYaw);
+  let hit = null;
+  for (const hy of [1.2, 2.2, .4]) {
+    hit = raycast(u.x, u.y + hy, u.z, dx, 0, dz, tank ? 7 : 5);
+    if (hit) { hit = { x: u.x + dx * hit.t, y: u.y + hy, z: u.z + dz * hit.t }; break; }
+  }
+  if (!hit) { u.detourYaw = u.moveYaw + (Math.random() < .5 ? 1 : -1) * 1.4; u.detourT = 1.2; return; }
+  if (tank) {
+    u.barrel = 0; u.recoil = 1;
+    const bx = u.x + dx * 3, bz = u.z + dz * 3, by = u.y + 2.45;
+    fireBurst(bx, by, bz, .9, 10); smokePuff(bx, by, bz, 1.2, 8, false);
+    sfxShot('cannon', bx, by, bz);
+    explode(hit.x, hit.y, hit.z, 3.4, { power: 120, team: u.team });
+    u.cd = UT.tank.cd;
+  } else fireWeapon(u, hit.x, hit.y, hit.z, true);
 }

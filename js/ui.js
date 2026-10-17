@@ -387,6 +387,7 @@ function placeUnits(h, formation) {
     if (placed < 6) dustBurst(x, u.y, z, .8, 2);
   }
   if (placed) sfxUI('place');
+  if (placed && phase === 'over') { phase = 'battle'; hideBanner(); refreshHUD(); }
 }
 function paintAt(h) {
   const t = ui.tool, r = ui.brush;

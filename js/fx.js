@@ -251,7 +251,7 @@ function initTracers() {
 const lights = [];
 const rings = [];
 function initFlashLights() {
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 4; i++) {
     const l = new THREE.PointLight(0xffa860, 0, 40, 2);
     l.castShadow = false;
     scene.add(l);
