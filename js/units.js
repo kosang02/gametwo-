@@ -90,7 +90,6 @@ function killUnit(u) {
     u.fallYaw = u.lastDx != null ? Math.atan2(u.lastDx, u.lastDz) : u.yaw + Math.PI;
     if (!u.stun) u.tiltV = 3.5;
   }
-  if (followUnit === u) followUnit = null;
 }
 function stainGround(x, y, z) {
   for (let k = 0; k < 2; k++) {

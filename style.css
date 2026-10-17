@@ -241,6 +241,45 @@ body[data-team="1"] .card.unit .pic { background: radial-gradient(circle at 50% 
   .go { font-size: 17px; padding: 10px 22px; }
   .toast { top: 70px; white-space: normal; text-align: center; }
 }
+/* ── 카메라 조작 버튼 ── */
+.camctl {
+  position: absolute; right: max(14px, env(safe-area-inset-right, 0px)); bottom: max(18px, env(safe-area-inset-bottom, 0px));
+  display: flex; align-items: center; gap: 8px; z-index: 4;
+}
+.cgrid { display: grid; grid-template-columns: repeat(3, 34px); grid-template-rows: repeat(3, 34px); gap: 2px; padding: 4px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 50%; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.cgrid button { padding: 0; border: 0; background: transparent; border-radius: 50%; display: grid; place-items: center; color: var(--fg); }
+.cgrid button:hover { background: rgba(255, 255, 255, .1); }
+#camUp { grid-column: 2; grid-row: 1; }
+#camRotL { grid-column: 1; grid-row: 2; }
+#camHome { grid-column: 2; grid-row: 2; }
+#camRotR { grid-column: 3; grid-row: 2; }
+#camDown { grid-column: 2; grid-row: 3; }
+.compass { background: rgba(0, 0, 0, .3) !important; color: var(--fg); }
+.compass svg { width: 24px; height: 24px; }
+#compassNeedle { transform-origin: 12px 12px; transform-box: view-box; }
+.zoom { display: flex; flex-direction: column; gap: 4px; }
+.zoom button { width: 38px; height: 38px; padding: 0; display: grid; place-items: center; background: var(--panel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.followchip {
+  position: absolute; left: 50%; top: max(76px, calc(env(safe-area-inset-top, 0px) + 68px)); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; border-radius: 20px;
+  background: var(--panel-solid); border: 1px solid var(--line-2); white-space: nowrap; z-index: 4;
+}
+.followchip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brass); box-shadow: 0 0 0 3px rgba(233, 180, 76, .25); }
+.followchip[data-team="0"] b { color: var(--red); }
+.followchip[data-team="1"] b { color: var(--blue); }
+.followchip button { padding: 4px 10px; border-radius: 14px; font-size: 12px; }
+.followchip kbd { font-family: var(--font-mono); font-size: 10px; color: var(--dim); margin-left: 4px; }
 @media (prefers-reduced-motion: reduce) {
   .drawer, .toast, .bar i { transition: none; }
+}
+.followchip:not([hidden]) ~ .toast { top: 122px; }
+@media (max-width: 720px) { .followchip:not([hidden]) ~ .toast { top: 108px; } }
+@media (max-width: 720px) {
+  .camctl { top: 46%; bottom: auto; right: max(8px, env(safe-area-inset-right, 0px)); transform: translateY(-50%); flex-direction: column; gap: 6px; }
+  .cgrid { grid-template-columns: repeat(3, 28px); grid-template-rows: repeat(3, 28px); }
+  .zoom button { width: 34px; height: 34px; }
+  .followchip { top: 66px; }
+  .followchip kbd { display: none; }
+  .drawer.open ~ .camctl { display: none; }
 }

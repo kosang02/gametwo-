@@ -77,6 +77,22 @@
     </div>
   </div>
 
+  <div id="followChip" class="followchip" hidden><span class="dot"></span><span>관전 중</span><b id="followName"></b><button id="followExit">끝내기 <kbd>Esc</kbd></button></div>
+
+  <div class="camctl" aria-label="카메라">
+    <div class="cgrid">
+      <button id="camUp" title="위에서 내려다보기 (PageUp)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
+      <button id="camRotL" title="왼쪽으로 회전 (Q)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v4h4"/></svg></button>
+      <button id="camHome" class="compass" title="전체 보기 (R)"><svg viewBox="0 0 24 24" aria-hidden="true"><g id="compassNeedle"><path d="M12 3l3 9h-6z" fill="#ff6a5a"/><path d="M12 21l-3-9h6z" fill="currentColor" opacity=".55"/></g></svg></button>
+      <button id="camRotR" title="오른쪽으로 회전 (E)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v4h-4"/></svg></button>
+      <button id="camDown" title="낮게 눕혀 보기 (PageDown)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+    </div>
+    <div class="zoom">
+      <button id="camIn" title="확대 (Z, +)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button id="camOut" title="축소 (X, -)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status"></div>
 
   <div id="banner" class="banner" hidden>
@@ -96,18 +112,20 @@
     <div class="hcard">
       <div class="hhead"><h3>조작법</h3><button id="helpClose" class="ib sm" title="닫기"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
       <dl>
-        <dt>좌클릭 / 드래그</dt><dd>선택한 병력·화력·지형 도구 사용</dd>
-        <dt>우클릭 드래그</dt><dd>시점 회전</dd>
-        <dt>Shift + 드래그, 휠 클릭</dt><dd>시점 이동</dd>
-        <dt>휠</dt><dd>확대·축소</dd>
-        <dt>W A S D · Q E · Z X</dt><dd>이동 · 회전 · 확대</dd>
-        <dt>두 손가락</dt><dd>모바일에서 이동·회전·확대</dd>
+        <dt>클릭</dt><dd>병력 배치, 화력 지원, 건물·나무·TNT 놓기</dd>
+        <dt>드래그</dt><dd>시점 이동 (붓·벽·잡기 도구는 그리기)</dd>
+        <dt>Shift + 드래그 · 휠 클릭 드래그</dt><dd>어떤 도구든 시점 이동</dd>
+        <dt>우클릭 드래그 · Alt + 드래그</dt><dd>시점 회전과 기울기</dd>
+        <dt>휠 · 트랙패드 핀치</dt><dd>커서 위치를 중심으로 확대·축소</dd>
+        <dt>W A S D · Q E · Z X</dt><dd>이동 · 회전 · 확대 (Shift를 누르면 빠르게)</dd>
+        <dt>PageUp · PageDown</dt><dd>기울기</dd>
+        <dt>R</dt><dd>전장 전체 보기</dd>
+        <dt>한 손가락</dt><dd>탭으로 배치, 끌어서 이동</dd>
+        <dt>두 손가락</dt><dd>벌리기 확대 · 비틀기 회전 · 함께 위아래로 기울기</dd>
         <dt>B 또는 Tab</dt><dd>병기고 열고 닫기</dd>
         <dt>T</dt><dd>배치 팀 바꾸기</dd>
-        <dt>Enter</dt><dd>전투 개시</dd>
-        <dt>Space</dt><dd>일시정지</dd>
-        <dt>F</dt><dd>전체 화면</dd>
-        <dt>Esc</dt><dd>관전 종료 · 창 닫기</dd>
+        <dt>Enter · Space</dt><dd>전투 개시 · 일시정지</dd>
+        <dt>F · Esc</dt><dd>전체 화면 · 관전 끝내기</dd>
       </dl>
     </div>
   </div>
@@ -121,6 +139,7 @@
 <script src="js/units.js"></script>
 <script src="js/combat.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/camera.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

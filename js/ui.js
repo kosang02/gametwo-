@@ -55,7 +55,7 @@ const TOOLSET = {
     { id: 'grenade', name: '수류탄', desc: '시점에서 던지기', icon: 'grenade', mode: 'click', r: 3 },
     { id: 'cluster', name: '집속탄', desc: '12개의 자탄으로 분열', icon: 'cluster', mode: 'click', r: 9 },
     { id: 'arty', name: '포격', desc: '포탄 7발이 쏟아짐', icon: 'arty', mode: 'click', r: 12 },
-    { id: 'air', name: '폭격기', desc: '보는 방향으로 융단폭격', icon: 'air', mode: 'click', r: 8, line: true },
+    { id: 'air', name: '폭격기', desc: '화면 위쪽으로 융단폭격', icon: 'air', mode: 'click', r: 8, line: true },
     { id: 'napalm', name: '네이팜', desc: '불바다를 만든다', icon: 'napalm', mode: 'click', r: 9, line: true },
     { id: 'missile', name: '미사일', desc: '대형 폭발', icon: 'missile', mode: 'click', r: 7 },
     { id: 'nuke', name: '핵폭탄', desc: '낙하산 투하 후 섬광', icon: 'nuke', mode: 'click', r: 19 },
@@ -72,7 +72,7 @@ const TOOLSET = {
     { id: 'house', name: '건물 짓기', desc: '무너뜨릴 수 있는 집', icon: 'house', mode: 'click' },
   ],
   tools: [
-    { id: 'camera', name: '시점 이동', desc: '드래그로 회전', icon: 'move', mode: 'camera' },
+    { id: 'camera', name: '시점 이동', desc: '실수로 배치하지 않음', icon: 'move', mode: 'camera' },
     { id: 'grab', name: '잡아 던지기', desc: '유닛을 들어 던짐', icon: 'grab', mode: 'grab' },
     { id: 'follow', name: '관전', desc: '유닛을 따라가며 보기', icon: 'eye', mode: 'follow' },
     { id: 'remove', name: '유닛 제거', desc: '드래그해서 삭제', icon: 'trash', mode: 'paint', brush: true },
@@ -81,208 +81,6 @@ const TOOLSET = {
 const TABS = [['units', '병력'], ['fire', '화력'], ['terrain', '지형'], ['tools', '도구']];
 const ui = { tab: 'units', tool: TOOLSET.units[0], team: 0, count: 5, brush: 3, drawer: true, timeScale: 1, paused: false,
   gfx: 'high', auto: false, help: false };
-let followUnit = null;
-
-// ───────────── 카메라 ─────────────
-const cam = { tx: SX / 2, ty: 16, tz: SZ / 2, yaw: -Math.PI * .78, pitch: .62, dist: 165,
-  c: null };
-function camInit() { cam.c = { tx: cam.tx, ty: cam.ty, tz: cam.tz, yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist }; }
-function updateCamera(dt) {
-  const k = 1 - Math.exp(-dt * 9);
-  if (followUnit && (followUnit.dead && followUnit.deadT > 3)) followUnit = null;
-  if (followUnit) {
-    const u = followUnit;
-    cam.tx = u.x; cam.tz = u.z; cam.ty = u.y + (u.type === 'tank' ? 3.5 : 2.6);
-    if (!drag.active) cam.yaw += angDiff(cam.yaw, u.yaw + Math.PI) * Math.min(1, dt * 2.5);
-  } else {
-    cam.tx = Math.max(-20, Math.min(SX + 20, cam.tx)); cam.tz = Math.max(-20, Math.min(SZ + 20, cam.tz));
-    const s = surfaceY(cam.tx, cam.tz);
-    cam.ty += (Math.max(WATER_Y, s) - cam.ty) * Math.min(1, dt * 3);
-  }
-  cam.pitch = Math.max(.08, Math.min(1.5, cam.pitch));
-  cam.dist = Math.max(6, Math.min(320, cam.dist));
-  const c = cam.c;
-  c.tx += (cam.tx - c.tx) * k; c.ty += (cam.ty - c.ty) * k; c.tz += (cam.tz - c.tz) * k;
-  c.yaw += angDiff(c.yaw, cam.yaw) * k; c.pitch += (cam.pitch - c.pitch) * k; c.dist += (cam.dist - c.dist) * k;
-  let px = c.tx + Math.sin(c.yaw) * Math.cos(c.pitch) * c.dist;
-  let py = c.ty + Math.sin(c.pitch) * c.dist;
-  let pz = c.tz + Math.cos(c.yaw) * Math.cos(c.pitch) * c.dist;
-  // 카메라와 목표 사이를 지형이 가리면 앞으로 당김
-  {
-    const dx = px - c.tx, dy = py - c.ty, dz = pz - c.tz, dl = Math.hypot(dx, dy, dz) || 1;
-    const h = raycast(c.tx, c.ty + .5, c.tz, dx / dl, dy / dl, dz / dl, dl);
-    if (h && h.t > 1.5 && (followUnit || h.t < dl * .6)) {
-      const k = Math.max(2.5, h.t - .8) / dl;
-      px = c.tx + dx * k; py = c.ty + .5 + dy * k; pz = c.tz + dz * k;
-    }
-  }
-  const gy = surfaceY(px, pz) + 1.5;
-  if (px > 0 && px < SX && pz > 0 && pz < SZ && py < gy) py = gy;
-  const sh = shakeAmt;
-  camera.position.set(px + R(sh) * .6, py + R(sh) * .6, pz + R(sh) * .6);
-  camera.lookAt(c.tx + R(sh) * .3, c.ty, c.tz + R(sh) * .3);
-  shakeAmt *= Math.exp(-dt * 6);
-  camera.updateMatrixWorld();
-}
-
-// ───────────── 피킹 ─────────────
-const _ray = new THREE.Raycaster(), _ndc = new THREE.Vector2();
-function screenRay(cx, cy) {
-  const r = renderer.domElement.getBoundingClientRect();
-  _ndc.set((cx - r.left) / r.width * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
-  _ray.setFromCamera(_ndc, camera);
-  return _ray.ray;
-}
-function pickGround(cx, cy) {
-  const ray = screenRay(cx, cy), o = ray.origin, d = ray.direction;
-  const h = raycast(o.x, o.y, o.z, d.x, d.y, d.z, 900);
-  if (h) return { x: o.x + d.x * h.t, y: o.y + d.y * h.t, z: o.z + d.z * h.t, vx: h.x, vy: h.y, vz: h.z, nx: h.nx, ny: h.ny, nz: h.nz };
-  // 맵 밖이면 지면 평면과 교차
-  if (d.y < -1e-3) {
-    const t = (WATER_Y - o.y) / d.y;
-    const x = o.x + d.x * t, z = o.z + d.z * t;
-    if (x >= 0 && x < SX && z >= 0 && z < SZ) return { x, y: WATER_Y, z, vx: x | 0, vy: Math.floor(WATER_Y), vz: z | 0, nx: 0, ny: 1, nz: 0 };
-  }
-  return null;
-}
-function pickUnit(cx, cy) {
-  const ray = screenRay(cx, cy), o = ray.origin, d = ray.direction;
-  let best = null, bt = 1e9;
-  for (const u of units) {
-    if (u.dead) continue;
-    const hw = u.type === 'tank' ? 2.6 : .8, hh = u.type === 'tank' ? 3.2 : 3;
-    const t = segAABB(o.x, o.y, o.z, d.x * 900, d.y * 900, d.z * 900, u.x - hw, u.y - .3, u.z - hw, u.x + hw, u.y + hh, u.z + hw);
-    if (t >= 0 && t < bt) { bt = t; best = u; }
-  }
-  return best;
-}
-
-// ───────────── 입력 ─────────────
-const pointers = new Map();
-const drag = { active: false, mode: null, x: 0, y: 0, sx: 0, sy: 0, start: null, last: null, lastPaint: null, moved: 0, pinch: 0, cx: 0, cy: 0, held: null, hist: [], touchT: 0 };
-let hover = null;
-function bindInput() {
-  const el = renderer.domElement;
-  el.addEventListener('contextmenu', e => e.preventDefault());
-  el.addEventListener('pointerdown', e => {
-    initAudio();
-    el.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
-    if (pointers.size === 2) {
-      // 두 손가락: 진행 중인 도구 동작 취소하고 화면 조작
-      cancelToolDrag();
-      const [a, b] = [...pointers.values()];
-      drag.active = true; drag.mode = 'pinch';
-      drag.pinch = Math.hypot(a.x - b.x, a.y - b.y); drag.cx = (a.x + b.x) / 2; drag.cy = (a.y + b.y) / 2;
-      drag.ang = Math.atan2(b.y - a.y, b.x - a.x);
-      return;
-    }
-    if (pointers.size > 2) return;
-    drag.x = drag.sx = e.clientX; drag.y = drag.sy = e.clientY; drag.moved = 0; drag.hist = [];
-    if (e.button === 2 || (e.button === 0 && ui.tool.mode === 'camera' && !e.shiftKey)) { drag.active = true; drag.mode = 'orbit'; return; }
-    if (e.button === 1 || (e.button === 0 && e.shiftKey)) { drag.active = true; drag.mode = 'pan'; return; }
-    if (e.button !== 0) return;
-    if (e.pointerType === 'touch') {
-      // 두 번째 손가락을 잠깐 기다린 뒤 도구 시작
-      drag.active = true; drag.mode = 'pendingTouch'; drag.touchT = performance.now();
-      return;
-    }
-    startTool(e.clientX, e.clientY);
-  });
-  el.addEventListener('pointermove', e => {
-    const p = pointers.get(e.pointerId);
-    if (p) { p.x = e.clientX; p.y = e.clientY; }
-    hover = { x: e.clientX, y: e.clientY };
-    if (!drag.active) return;
-    if (drag.mode === 'pinch') {
-      if (pointers.size < 2) return;
-      const [a, b] = [...pointers.values()];
-      const d = Math.hypot(a.x - b.x, a.y - b.y), cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, ang = Math.atan2(b.y - a.y, b.x - a.x);
-      cam.dist *= drag.pinch / Math.max(20, d);
-      panBy(cx - drag.cx, cy - drag.cy);
-      cam.yaw -= angDiff(drag.ang, ang);
-      drag.pinch = Math.max(20, d); drag.cx = cx; drag.cy = cy; drag.ang = ang;
-      return;
-    }
-    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-    drag.moved += Math.abs(dx) + Math.abs(dy);
-    drag.x = e.clientX; drag.y = e.clientY;
-    drag.hist.push({ x: e.clientX, y: e.clientY, t: performance.now() });
-    if (drag.hist.length > 6) drag.hist.shift();
-    if (drag.mode === 'pendingTouch') {
-      if (drag.moved > 8 || performance.now() - drag.touchT > 140) { startTool(drag.sx, drag.sy); }
-      return;
-    }
-    if (drag.mode === 'orbit') { cam.yaw -= dx * .006; cam.pitch += dy * .005; if (followUnit) followUnit = null, toastFollow(); }
-    else if (drag.mode === 'pan') panBy(dx, dy);
-    else toolMove(e.clientX, e.clientY);
-  });
-  const up = e => {
-    pointers.delete(e.pointerId);
-    if (drag.mode === 'pinch') { if (pointers.size === 0) drag.active = false; return; }
-    if (!drag.active) return;
-    if (drag.mode === 'pendingTouch') startTool(drag.sx, drag.sy);
-    if (drag.mode === 'tool') toolUp(e.clientX, e.clientY);
-    drag.active = false; drag.mode = null;
-  };
-  el.addEventListener('pointerup', up);
-  el.addEventListener('pointercancel', up);
-  el.addEventListener('pointerleave', () => { hover = null; });
-  el.addEventListener('wheel', e => {
-    e.preventDefault();
-    const f = Math.exp(e.deltaY * .0011);
-    const old = cam.dist;
-    cam.dist *= f;
-    if (f < 1 && !followUnit) {
-      const h = pickGround(e.clientX, e.clientY);
-      if (h) { const k = (1 - Math.max(6, Math.min(320, cam.dist)) / old) * .9; cam.tx += (h.x - cam.tx) * k; cam.tz += (h.z - cam.tz) * k; }
-    }
-  }, { passive: false });
-  window.addEventListener('keydown', onKey);
-  window.addEventListener('keyup', e => keys.delete(e.code));
-  window.addEventListener('blur', () => keys.clear());
-}
-const keys = new Set();
-function onKey(e) {
-  if (e.target.tagName === 'INPUT') return;
-  keys.add(e.code);
-  switch (e.code) {
-    case 'Space': togglePause(); e.preventDefault(); break;
-    case 'KeyB': case 'Tab': setDrawer(!ui.drawer); e.preventDefault(); break;
-    case 'KeyF': toggleFullscreen(); break;
-    case 'KeyH': toggleHelp(); break;
-    case 'Enter': if (phase === 'setup') startBattle(); break;
-    case 'Escape':
-      if (ui.help) toggleHelp(); else if (followUnit) { followUnit = null; toastFollow(); } else if (ui.drawer) setDrawer(false);
-      break;
-    case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': setTab(TABS[+e.code.slice(5) - 1][0]); break;
-    case 'KeyT': setTeam(1 - ui.team); break;
-  }
-}
-function updateKeys(dt) {
-  const sp = cam.dist * .9 * dt;
-  let fx = 0, fz = 0;
-  if (keys.has('KeyW') || keys.has('ArrowUp')) fz -= 1;
-  if (keys.has('KeyS') || keys.has('ArrowDown')) fz += 1;
-  if (keys.has('KeyA') || keys.has('ArrowLeft')) fx -= 1;
-  if (keys.has('KeyD') || keys.has('ArrowRight')) fx += 1;
-  if (fx || fz) {
-    if (followUnit) { followUnit = null; toastFollow(); }
-    const s = Math.sin(cam.yaw), c = Math.cos(cam.yaw);
-    cam.tx += (fx * c + fz * s) * sp; cam.tz += (-fx * s + fz * c) * sp;
-  }
-  if (keys.has('KeyQ')) cam.yaw += dt * 1.6;
-  if (keys.has('KeyE')) cam.yaw -= dt * 1.6;
-  if (keys.has('KeyZ')) cam.dist *= 1 - dt * 1.2;
-  if (keys.has('KeyX')) cam.dist *= 1 + dt * 1.2;
-}
-function panBy(dx, dy) {
-  if (followUnit) { followUnit = null; toastFollow(); }
-  const k = cam.dist * .0016;
-  const s = Math.sin(cam.yaw), c = Math.cos(cam.yaw);
-  cam.tx += (-dx * c - dy * s) * k;
-  cam.tz += (dx * s - dy * c) * k;
-}
 
 // ───────────── 도구 동작 ─────────────
 function startTool(cx, cy) {
@@ -292,18 +90,14 @@ function startTool(cx, cy) {
   drag.start = h; drag.last = h; drag.lastPaint = null;
   if (t.mode === 'grab') {
     const u = pickUnit(cx, cy);
-    if (u) { drag.held = u; u.held = true; u.stun = 99; u.tiltV = 0; drag.ghist = []; drag.grabY = u.y + 5; sfxUI('place'); }
+    if (u) {
+      if (followUnit === u) stopFollow(true);
+      drag.held = u; u.held = true; u.stun = 99; u.tiltV = 0; drag.ghist = []; drag.grabY = u.y + 5; sfxUI('place');
+    }
     return;
   }
-  if (t.mode === 'follow') {
-    const u = pickUnit(cx, cy);
-    if (u) { followUnit = u; cam.dist = u.type === 'tank' ? 22 : 13; cam.pitch = .28; toast(`${TEAM[u.team].name} ${UT[u.type].name} 관전 중 · 화면을 끌거나 Esc로 종료`); }
-    drag.active = false; return;
-  }
   if (!h) return;
-  if (t.unit) { placeUnits(h, true); return; }
-  if (t.mode === 'paint') { paintAt(h); drag.lastPaint = h; return; }
-  if (t.mode === 'click') { if (!t.line) { useWeapon(t.id, h); drag.active = false; } return; }
+  if (t.mode === 'paint') { paintAt(h); drag.lastPaint = h; }
 }
 function cancelToolDrag() {
   if (drag.held) { drag.held.held = false; drag.held.stun = 1; drag.held = null; }
@@ -327,10 +121,7 @@ function toolMove(cx, cy) {
   const h = pickGround(cx, cy);
   if (!h) return;
   drag.last = h;
-  if (t.unit && ui.count === 1 && drag.start) {
-    const lp = drag.lastPaint || drag.start;
-    if (Math.hypot(h.x - lp.x, h.z - lp.z) > (t.unit === 'tank' ? 6.5 : 1.7)) { placeUnits(h, false); drag.lastPaint = h; }
-  } else if (t.mode === 'paint') {
+  if (t.mode === 'paint') {
     const lp = drag.lastPaint;
     if (!lp || Math.hypot(h.x - lp.x, h.z - lp.z) > Math.max(.8, ui.brush * .5) || t.id === 'raise' || t.id === 'sand') { paintAt(h); drag.lastPaint = h; }
   }
@@ -351,11 +142,6 @@ function toolUp(cx, cy) {
     return;
   }
   if (t.mode === 'line' && drag.start && drag.last) buildLine(t.id, drag.start, drag.last);
-  if (t.mode === 'click' && t.line && drag.start) {
-    const a = drag.start, b = drag.last || a;
-    const yaw = Math.hypot(b.x - a.x, b.z - a.z) > 4 ? Math.atan2(b.x - a.x, b.z - a.z) : cam.c.yaw + Math.PI;
-    useWeapon(t.id, a, yaw);
-  }
 }
 function updateHeld(dt) {
   const u = drag.held;
@@ -394,7 +180,7 @@ function paintAt(h) {
   if (t.id === 'remove') {
     for (const u of units) if (Math.hypot(u.x - h.x, u.z - h.z) < r + 1) u.removed = true;
     units = units.filter(u => !u.removed);
-    if (followUnit && followUnit.removed) followUnit = null;
+    if (followUnit && followUnit.removed) stopFollow(true);
     return;
   }
   if (t.id === 'dig') {
@@ -507,7 +293,7 @@ function initPreview() {
 const TEAMHEX = [0xff6a5a, 0x6aa8ff];
 function updatePreview() {
   ringMesh.visible = false; lineMesh.visible = false;
-  if (!hover || (drag.active && (drag.mode === 'orbit' || drag.mode === 'pan' || drag.mode === 'pinch'))) return;
+  if (!hover || gesture || (drag.active && (drag.mode === 'orbit' || drag.mode === 'pan'))) return;
   const t = ui.tool;
   if (t.mode === 'camera' || t.mode === 'follow' || t.mode === 'grab') return;
   const h = drag.active && drag.mode === 'tool' && drag.last ? drag.last : pickGround(hover.x, hover.y);
@@ -521,7 +307,7 @@ function updatePreview() {
   ringMesh.position.set(h.x, h.y + .15, h.z);
   ringMesh.scale.setScalar(r);
   ringMesh.material.color.setHex(col);
-  if ((t.mode === 'line' || t.line) && drag.active && drag.mode === 'tool' && drag.start) {
+  if (t.mode === 'line' && drag.active && drag.mode === 'tool' && drag.start) {
     const a = lineMesh.geometry.attributes.position.array, s = drag.start;
     a[0] = s.x; a[1] = s.y + .3; a[2] = s.z; a[3] = h.x; a[4] = h.y + .3; a[5] = h.z;
     lineMesh.geometry.attributes.position.needsUpdate = true;
@@ -632,15 +418,15 @@ function setDrawer(open) {
 function hint() {
   const t = ui.tool;
   let s;
-  if (t.unit) s = `클릭해서 ${UT[t.unit].name} ${ui.count}명 배치${ui.count === 1 ? ' · 드래그하면 줄지어 배치' : ''}`;
-  else if (t.mode === 'line') s = '드래그해서 시작점과 끝점 지정';
-  else if (t.line) s = '클릭하면 보는 방향으로 진입 · 드래그로 방향 지정';
-  else if (t.mode === 'paint') s = '드래그해서 칠하기 · 붓 크기는 병기고에서';
-  else if (t.mode === 'camera') s = '드래그로 회전 · 휠로 확대 · Shift+드래그로 이동';
-  else if (t.mode === 'grab') s = '유닛을 잡고 휘둘러 던지기';
-  else if (t.mode === 'follow') s = '따라갈 유닛을 클릭';
-  else s = '목표 지점을 클릭';
-  $('hint').innerHTML = `<b>${t.name}</b> ${s}<span class="keys"> · 우클릭 회전 · 휠 확대 · WASD 이동</span>`;
+  if (t.unit) s = `클릭하면 ${UT[t.unit].name} ${ui.count}명 배치 · 드래그는 시점 이동`;
+  else if (t.mode === 'line') s = '드래그로 시작점→끝점 · Shift+드래그는 시점 이동';
+  else if (t.line) s = '클릭한 곳으로 화면 위쪽 방향에서 진입 · 드래그는 시점 이동';
+  else if (t.mode === 'paint') s = '드래그해서 칠하기 · Shift+드래그는 시점 이동';
+  else if (t.mode === 'camera') s = '드래그 이동 · 더블클릭한 곳으로 이동';
+  else if (t.mode === 'grab') s = '유닛을 잡고 휘둘러 던지기 · Shift+드래그는 시점 이동';
+  else if (t.mode === 'follow') s = '따라갈 유닛을 클릭 · 드래그는 시점 이동';
+  else s = '클릭해서 목표 지정 · 드래그는 시점 이동';
+  $('hint').innerHTML = `<b>${t.name}</b> ${s}<span class="keys"> · 우클릭(또는 Alt)+드래그 회전 · 휠 확대 · R 전체 보기</span>`;
   $('dtabTool').textContent = t.name;
 }
 let toastT = 0;
@@ -649,7 +435,6 @@ function toast(msg) {
   el.textContent = msg; el.classList.add('show');
   toastT = 2.6;
 }
-function toastFollow() { toast('관전을 종료했습니다'); }
 function togglePause() { ui.paused = !ui.paused; refreshHUD(); }
 function toggleHelp() { ui.help = !ui.help; $('help').hidden = !ui.help; }
 function isFull() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }

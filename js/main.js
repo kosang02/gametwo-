@@ -117,7 +117,7 @@ function clearBattleState() {
   battleTime = 0; victoryT = -1; nukeFlash = 0;
 }
 function clearUnits() {
-  units = []; followUnit = null;
+  units = []; stopFollow(true);
   stats.kills[0] = stats.kills[1] = stats.lost[0] = stats.lost[1] = 0;
 }
 function placeDefaultArmies() {
@@ -164,7 +164,7 @@ function startBattle() {
   if (!followUnit && cam.dist > 130) {
     let sx = 0, sz = 0, n = 0;
     for (const u of units) if (!u.dead) { sx += u.x; sz += u.z; n++; }
-    cam.tx = sx / n; cam.tz = sz / n; cam.dist = 115; cam.pitch = Math.min(cam.pitch, .6);
+    camFocus(sx / n, sz / n, 115); cam.pitch = Math.min(cam.pitch, .6);
   }
   sfxUI('go');
   toast(!a[0] || !a[1] ? '한쪽 병력만 있습니다. 반대 팀도 배치해 보세요' : '전투 개시!');
@@ -178,7 +178,7 @@ function resetToSetup() {
     for (const B of fallingBodies) { worldGroup.remove(B.mesh); B.mesh.geometry.dispose(); }
     fallingBodies.length = 0;
     rebuildAll();
-    units = []; followUnit = null;
+    units = []; stopFollow(true);
     for (const [t, team, x, z, yaw] of snapshot.units) spawnUnit(t, team, x, z, yaw);
   }
   phase = 'setup';
@@ -192,6 +192,8 @@ function newMap() {
   showLoading(true);
   setTimeout(() => {
     genWorld(seed);
+    rebuildCamHeight();
+    camReset(true);
     placeDefaultArmies();
     phase = 'setup'; snapshot = null;
     hideBanner(); refreshHUD(); showLoading(false);
@@ -272,17 +274,16 @@ function boot() {
   initBoxes();
   initPreview();
   ocv = $('overlay'); octx = ocv.getContext('2d');
-  camInit();
   makeThumbs();
   buildUI();
   bindInput();
   window.addEventListener('resize', onResize);
   const mobile = matchMedia('(max-width: 720px)').matches || /Android|iPhone|iPad/i.test(navigator.userAgent);
   setGfx(mobile ? 'low' : 'high');
-  if (mobile) { setDrawer(false); cam.dist = 210; }
-  else setDrawer(true);
-  camInit();
+  setDrawer(!mobile);
   genWorld(seed);
+  rebuildCamHeight();
+  camReset(true);
   placeDefaultArmies();
   refreshHUD();
   showLoading(false);
@@ -291,5 +292,5 @@ function boot() {
 window.addEventListener('load', boot);
 window.addEventListener('pointerdown', () => initAudio(), { capture: true });
 window.addEventListener('keydown', () => initAudio(), { capture: true });
-window.__pf = { get units() { return units; }, simulate, explode, startBattle, useWeapon, cam, ui, get phase() { return phase; }, stats,
+window.__pf = { get units() { return units; }, simulate, explode, startBattle, useWeapon, cam, get followUnit() { return followUnit; }, drag, ui, get phase() { return phase; }, stats,
   get dN() { return dN; }, get fallingBodies() { return fallingBodies; }, setTab, setDrawer, resetToSetup };
