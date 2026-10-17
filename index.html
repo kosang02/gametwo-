@@ -5,33 +5,122 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>픽셀 전선</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Gothic+A1:wght@400;700&family=Silkscreen&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body data-team="0">
+<!--APP-->
 <div id="app">
-  <header id="top">
-    <h1>픽셀 전선<small>PIXEL FRONT · SANDBOX WAR</small></h1>
-    <div class="score">
-      <div class="chip red"><i></i>레드 <b id="rAlive">0</b><span>처치 <b id="rKills">0</b></span></div>
-      <div class="chip blue"><i></i>블루 <b id="bAlive">0</b><span>처치 <b id="bKills">0</b></span></div>
+  <canvas id="gl"></canvas>
+  <canvas id="overlay"></canvas>
+  <div id="flash"></div>
+
+  <header class="top">
+    <div class="brand"><span class="mark">픽셀 전선</span><span class="sub">VOXEL WAR SANDBOX</span></div>
+    <div class="score" aria-live="polite">
+      <div class="side red"><span class="nm">레드</span><b id="rN">0</b></div>
+      <div class="mid">
+        <div class="bar"><i id="barR"></i></div>
+        <div class="meta"><span>처치 <b id="rK">0</b> · 손실 <b id="rL">0</b></span><span id="phase" class="phase" data-state="setup">배치 단계</span><span>처치 <b id="bK">0</b> · 손실 <b id="bL">0</b></span></div>
+      </div>
+      <div class="side blue"><b id="bN">0</b><span class="nm">블루</span></div>
     </div>
-    <div class="ctrl">
-      <button id="btnPause" title="Space">일시정지</button>
-      <button id="btnSlow" title="S">슬로모션</button>
-      <button id="btnAuto" title="A">자동 증원</button>
-      <button id="btnNew" title="R">새 전장</button>
-      <button id="btnEmpty">빈 맵</button>
-      <button id="btnSound">소리 켜짐</button>
+    <div class="sys">
+      <span id="clock" class="clock"></span>
+      <button id="btnSound" class="ib" title="소리"></button>
+      <button id="btnGfx" class="ib" title="그래픽 품질"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/></svg></button>
+      <button id="btnHelp" class="ib" title="조작법 (H)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17h.01"/></svg></button>
+      <button id="btnFull" class="ib full" title="전체 화면 (F)"></button>
     </div>
   </header>
-  <div id="stage">
-    <canvas id="cv"></canvas>
-    <div id="hint"></div>
-    <div id="banner" hidden></div>
+
+  <aside id="drawer" class="drawer open">
+    <div class="panel">
+      <div class="phead">
+        <h2>병기고</h2>
+        <div class="seg" role="group" aria-label="배치할 팀">
+          <button id="teamRed" class="seg-r">레드</button>
+          <button id="teamBlue" class="seg-b">블루</button>
+        </div>
+        <button id="drawerClose" class="ib sm" title="닫기 (B)"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <nav id="tabs" class="tabs" role="tablist"></nav>
+      <div id="cards" class="cards"></div>
+      <div class="opts">
+        <label id="optCount" class="opt"><span>한 번에 배치</span><input id="count" type="range" min="1" max="20" value="5"><b id="countV">5</b></label>
+        <label id="optBrush" class="opt" hidden><span>붓 크기</span><input id="brush" type="range" min="1" max="8" value="3"><b id="brushV">3</b></label>
+      </div>
+      <div class="army">
+        <button id="btnArmy">기본 군대</button>
+        <button id="btnClear">병력 비우기</button>
+        <button id="btnAuto">자동 증원</button>
+        <button id="btnMap">새 지도</button>
+      </div>
+    </div>
+    <button id="drawerTab" class="dtab" aria-controls="drawer" aria-expanded="true" title="병기고 열기/닫기 (B)">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="1.5"/><path d="M9 7V4h6v3M3 12h18M10 12v2h4v-2"/></svg>
+      <span>병기고</span><em id="dtabTool"></em>
+    </button>
+  </aside>
+
+  <div class="bottom">
+    <div id="hint" class="hint"></div>
+    <div id="setupBar" class="ctl">
+      <button id="btnStart" class="go"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l9.5 9.5M4 4h4.5M4 4v4.5M20 4l-9.5 9.5M20 4h-4.5M20 4v4.5M8 16l-4 4M16 16l4 4M10 14l-3 3M14 14l3 3"/></svg>전투 개시</button>
+    </div>
+    <div id="battleBar" class="ctl" hidden>
+      <button id="btnPause" class="ib" title="일시정지 (Space)"></button>
+      <div class="speed" role="group" aria-label="속도">
+        <button id="spd035">0.35×</button><button id="spd1">1×</button><button id="spd2">2×</button>
+      </div>
+      <button id="btnReset" class="reset" title="전투 전 배치로 되돌리기"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v6h6"/><path d="M4.6 10A8 8 0 1 1 6 17"/></svg>다시 배치</button>
+    </div>
   </div>
-  <nav id="tools"></nav>
+
+  <div id="toast" class="toast" role="status"></div>
+
+  <div id="banner" class="banner" hidden>
+    <div class="bcard">
+      <div class="beyebrow">전투 결과</div>
+      <h3 id="bTitle">레드 승리</h3>
+      <div id="bStats" class="bstats"></div>
+      <div class="bbtn">
+        <button id="bAgain" class="go">같은 배치로 다시</button>
+        <button id="bWatch">전장 둘러보기</button>
+        <button id="bNew">새 지도</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="help" class="help" hidden>
+    <div class="hcard">
+      <div class="hhead"><h3>조작법</h3><button id="helpClose" class="ib sm" title="닫기"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+      <dl>
+        <dt>좌클릭 / 드래그</dt><dd>선택한 병력·화력·지형 도구 사용</dd>
+        <dt>우클릭 드래그</dt><dd>시점 회전</dd>
+        <dt>Shift + 드래그, 휠 클릭</dt><dd>시점 이동</dd>
+        <dt>휠</dt><dd>확대·축소</dd>
+        <dt>W A S D · Q E · Z X</dt><dd>이동 · 회전 · 확대</dd>
+        <dt>두 손가락</dt><dd>모바일에서 이동·회전·확대</dd>
+        <dt>B 또는 Tab</dt><dd>병기고 열고 닫기</dd>
+        <dt>T</dt><dd>배치 팀 바꾸기</dd>
+        <dt>Enter</dt><dd>전투 개시</dd>
+        <dt>Space</dt><dd>일시정지</dd>
+        <dt>F</dt><dd>전체 화면</dd>
+        <dt>Esc</dt><dd>관전 종료 · 창 닫기</dd>
+      </dl>
+    </div>
+  </div>
+
+  <div id="loading" class="loading"><div><b>전장을 만드는 중</b><span>지형과 건물을 쌓고 있습니다</span></div></div>
 </div>
-<script src="game.js"></script>
+<!--/APP-->
+<script src="vendor/three.min.js"></script>
+<script src="js/world.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/units.js"></script>
+<script src="js/combat.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>
